@@ -618,17 +618,39 @@ func (s *Store) UpsertTwitchUser(ctx context.Context, twitchID, login, display, 
 	return result, err
 }
 
-func (s *Store) EnsureOwner(ctx context.Context) (domain.User, error) {
+func (s *Store) PromoteTwitchOwner(ctx context.Context, userID string) (domain.User, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.User{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET role='user',updated_at=now()
+		WHERE role='owner' AND id::text<>$1 AND twitch_id IS NOT NULL`, userID); err != nil {
+		return domain.User{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET deleted_at=now(),updated_at=now()
+		WHERE role='owner' AND id::text<>$1 AND twitch_id IS NULL`, userID); err != nil {
+		return domain.User{}, err
+	}
 	var result domain.User
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO users(display_name,role)
-		VALUES('Ravshann','owner')
-		ON CONFLICT ((role)) WHERE role='owner' AND deleted_at IS NULL
-		DO UPDATE SET updated_at=now()
+	err = tx.QueryRow(ctx, `
+		UPDATE users SET role='owner',updated_at=now()
+		WHERE id::text=$1 AND twitch_id IS NOT NULL AND deleted_at IS NULL
 		RETURNING id::text,COALESCE(twitch_id,''),COALESCE(twitch_login,''),
-			display_name,avatar_url,role::text,created_at`).
+			display_name,avatar_url,role::text,created_at`, userID).
 		Scan(&result.ID, &result.TwitchID, &result.Login, &result.Display, &result.AvatarURL, &result.Role, &result.CreatedAt)
-	return result, err
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, store.ErrNotFound
+	}
+	if err != nil {
+		return domain.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.User{}, err
+	}
+	return result, nil
 }
 
 func (s *Store) CreateOAuthState(ctx context.Context, stateHash, verifierHash []byte, returnTo string, expires time.Time) error {

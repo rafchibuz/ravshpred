@@ -84,7 +84,7 @@ type Store interface {
 	GetSettings(context.Context) (domain.GlobalSettings, error)
 	UpdateSettings(context.Context, domain.GlobalSettings, string) error
 	UpsertTwitchUser(context.Context, string, string, string, string) (domain.User, error)
-	EnsureOwner(context.Context) (domain.User, error)
+	PromoteTwitchOwner(context.Context, string) (domain.User, error)
 	CreateOAuthState(context.Context, []byte, []byte, string, time.Time) error
 	ConsumeOAuthState(context.Context, []byte) (string, error)
 

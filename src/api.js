@@ -50,7 +50,7 @@ function durationLabel(seconds) {
 
 function compactNumber(value) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return '—';
+  if (!Number.isFinite(number) || number <= 0) return '—';
   return new Intl.NumberFormat('ru-RU', {
     notation: 'compact',
     maximumFractionDigits: 1,
@@ -235,11 +235,4 @@ export async function currentUser() {
 
 export function logout() {
   return request('/logout', { method: 'POST' });
-}
-
-export function founderLogin(secret) {
-  return request('/founder/session', {
-    method: 'POST',
-    body: { secret },
-  }).then((payload) => payload.user);
 }

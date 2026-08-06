@@ -361,7 +361,6 @@ function Logo() {
 function Sidebar({ route, navigate, role, unread, actor }) {
   const nav = [
     { key: 'feed', label: 'Главная', icon: Home },
-    { key: 'categories', label: 'Категории', icon: LayoutGrid },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
     ...(can(role, 'view_profile')
       ? [
@@ -431,11 +430,17 @@ function Topbar({ role, search, setSearch, navigate, demoMode, openRoleSwitcher,
           </button>
         )}
         {demoMode ? (
-          <button className="user-pill role-pill qa-role-pill" onClick={openRoleSwitcher} aria-label={`QA-роль: ${ROLE_LABELS[role]}`}>
-            <ShieldCheck size={15} />
-            <span>QA · {ROLE_LABELS[role]}</span>
-            <ChevronDown size={13} />
-          </button>
+          <>
+            <button className="twitch-login qa-twitch-login" onClick={openAuth}>
+              <Sparkles size={15} />
+              <span>Войти через Twitch</span>
+            </button>
+            <button className="user-pill role-pill qa-role-pill" onClick={openRoleSwitcher} aria-label={`QA-роль: ${ROLE_LABELS[role]}`}>
+              <ShieldCheck size={15} />
+              <span>QA · {ROLE_LABELS[role]}</span>
+              <ChevronDown size={13} />
+            </button>
+          </>
         ) : role === 'guest' ? (
           <button className="twitch-login" onClick={openAuth}>
             <Sparkles size={15} />
@@ -477,40 +482,6 @@ function AuthModal({ onContinue, onClose }) {
   );
 }
 
-function FounderLogin({ onSuccess }) {
-  const [secret, setSecret] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const submit = async (event) => {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      const user = await api.founderLogin(secret);
-      onSuccess(user);
-    } catch (loginError) {
-      setError(loginError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <main className="main-content narrow">
-      <form className="panel form-panel founder-login" onSubmit={submit}>
-        <span className="panel-kicker">ЗАКРЫТЫЙ ВХОД</span>
-        <h1>Доступ основателя</h1>
-        <p>Этот адрес не показан в навигации. Сессия основателя не связана с Twitch-аккаунтом стримера.</p>
-        <label>
-          Ключ доступа
-          <input type="password" autoComplete="current-password" value={secret} onChange={(event) => setSecret(event.target.value)} />
-        </label>
-        {error && <div className="form-error" role="alert">{error}</div>}
-        <button className="primary-btn full" disabled={busy}>{busy ? 'Проверяем…' : 'Войти'}</button>
-      </form>
-    </main>
-  );
-}
-
 function RoleSwitcher({ role, onSelect, onReset, onClose }) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -548,15 +519,22 @@ function RoleSwitcher({ role, onSelect, onReset, onClose }) {
 
 function Thumb({ video, large = false, publicCard = false }) {
   const status = publicCard ? 'approved' : video.status;
+  const fallbackThumbnail = video.thumbnailUrl || `https://i.ytimg.com/vi/${video.youtubeId}/hqdefault.jpg`;
   return (
     <div className={`thumb ${large ? 'thumb-large' : ''}`} style={{ background: tones[video.tone] || tones.purple }}>
       <img
         className="youtube-thumb"
-        src={video.thumbnailUrl || `https://i.ytimg.com/vi/${video.youtubeId}/hqdefault.jpg`}
-        alt=""
+        src={`https://i.ytimg.com/vi/${video.youtubeId}/maxresdefault.jpg`}
+        data-fallback={fallbackThumbnail}
+        alt={`Превью «${video.title}»`}
         loading={large ? 'eager' : 'lazy'}
         onError={(event) => {
-          event.currentTarget.hidden = true;
+          if (event.currentTarget.dataset.fallbackTried !== '1') {
+            event.currentTarget.dataset.fallbackTried = '1';
+            event.currentTarget.src = event.currentTarget.dataset.fallback;
+          } else {
+            event.currentTarget.hidden = true;
+          }
         }}
       />
       <div className="thumb-top">
@@ -577,7 +555,7 @@ function Thumb({ video, large = false, publicCard = false }) {
   );
 }
 
-function VideoCard({ video, role, onVote, onOpen, list }) {
+function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
   const totals = voteTotals(video);
   const vote = video.userVote === 1 ? 'up' : video.userVote === -1 ? 'down' : null;
   return (
@@ -610,6 +588,11 @@ function VideoCard({ video, role, onVote, onOpen, list }) {
           </div>
         </div>
         {!can(role, 'vote') && <div className="login-hint">Войдите через Twitch, чтобы голосовать</div>}
+        {can(role, 'moderate') && (
+          <button className="manage-video-btn" onClick={() => onManage(video)}>
+            <ShieldCheck size={14} /> Отсмотрено / удалить
+          </button>
+        )}
       </div>
     </article>
   );
@@ -621,6 +604,10 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
   const [sort, setSort] = useState('Популярности');
   const [list, setList] = useState(false);
   const approved = videos.filter((video) => video.status === 'approved');
+  const manageVideo = (video) => {
+    window.sessionStorage.setItem('ravshann-moderation-target', video.id);
+    navigate('moderation');
+  };
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return approved
@@ -673,7 +660,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
       <div className="content-grid">
         <section className={`feed-grid ${list ? 'feed-list' : ''}`}>
           {filtered.map((video) => (
-            <VideoCard key={video.id} video={video} role={role} onVote={onVote} onOpen={onOpen} list={list} />
+            <VideoCard key={video.id} video={video} role={role} onVote={onVote} onOpen={onOpen} onManage={manageVideo} list={list} />
           ))}
           {!filtered.length && (
             <div className="empty-state">
@@ -706,47 +693,15 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
               .sort((a, b) => voteTotals(b).score - voteTotals(a).score)
               .slice(0, 5)
               .map((video, index) => (
-                <div className="rank-row" key={video.id}>
+                <button type="button" className="rank-row" key={video.id} onClick={() => onOpen(video)} aria-label={`Открыть «${video.title}» на YouTube`}>
                   <b>{index + 1}</b>
                   <span>{video.title}</span>
                   <strong>{voteTotals(video).score > 0 ? '+' : ''}{voteTotals(video).score}</strong>
-                </div>
+                </button>
               ))}
-          </div>
-          <div className="side-card stream-card">
-            <span className="eyebrow">РЕЖИМ ДЛЯ СТРИМА</span>
-            <h3>Минимум лишнего</h3>
-            <p>В ленте только одобренные ролики. «Отсмотрено» не скрывает видео и не отключает реакции.</p>
           </div>
         </aside>
       </div>
-    </main>
-  );
-}
-
-function CategoriesView({ videos, categories, navigate }) {
-  const approved = videos.filter((video) => video.status === 'approved');
-  return (
-    <main className="main-content">
-      <section className="page-heading">
-        <div>
-          <div className="eyebrow">КАТАЛОГ</div>
-          <h1>Категории</h1>
-          <p>Быстрый переход к одобренным видео по темам</p>
-        </div>
-      </section>
-      <section className="category-cards">
-        {categories.map((category, index) => {
-          const items = approved.filter((video) => video.category === category);
-          return (
-            <button key={category} className={`category-card tone-${index % 4}`} onClick={() => navigate('feed')}>
-              <span>{String(items.length).padStart(2, '0')} видео</span>
-              <strong>{category}</strong>
-              <small>Открыть ленту <ArrowUpRight size={14} /></small>
-            </button>
-          );
-        })}
-      </section>
     </main>
   );
 }
@@ -977,6 +932,14 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
   useEffect(() => {
     if (!selected && items[0]) setSelectedId(items[0].id);
   }, [selected, items]);
+  useEffect(() => {
+    const targetId = window.sessionStorage.getItem('ravshann-moderation-target');
+    const target = state.videos.find((video) => String(video.id) === targetId);
+    if (!target) return;
+    setTab(target.status);
+    setSelectedId(target.id);
+    window.sessionStorage.removeItem('ravshann-moderation-target');
+  }, [state.videos]);
   useEffect(() => setDeleteArmed(false), [selected?.id]);
 
   const decide = (status) => {
@@ -1344,8 +1307,8 @@ function App() {
   const query = new URLSearchParams(window.location.search);
   const queryRole = query.get('role');
   const demoMode = (import.meta.env.DEV || import.meta.env.VITE_QA_MODE === '1') && (query.get('demo') === '1' || Boolean(queryRole));
-  const initialRole = demoMode && ROLE_LABELS[queryRole] ? queryRole : 'guest';
-  const defaultRoute = initialRole === 'owner' ? 'owner' : initialRole === 'moderator' ? 'moderation' : 'feed';
+  const initialRole = demoMode ? (ROLE_LABELS[queryRole] ? queryRole : 'owner') : 'guest';
+  const defaultRoute = 'feed';
   const [route, navigate] = useRoute(defaultRoute);
   const [role, setRole] = useState(initialRole);
   const [sessionUser, setSessionUser] = useState(null);
@@ -1357,7 +1320,7 @@ function App() {
   const actor = sessionUser
     ? { id: sessionUser.id, name: sessionUser.display_name || sessionUser.login }
     : role === 'owner'
-      ? { id: 'owner', name: 'Ravshann' }
+      ? { id: 'owner', name: 'rafchibiskus' }
       : role === 'moderator'
         ? { id: 'moderator', name: 'moderator_live' }
         : { id: 'viewer', name: 'Ravshibiscus' };
@@ -1608,9 +1571,7 @@ function App() {
   const accessAction = demoMode ? openRoleSwitcher : openAuth;
 
   let page;
-  if (route === 'founder-access' && !demoMode) page = <FounderLogin onSuccess={(user) => { setSessionUser(user); setRole('owner'); navigate('owner'); notify('Закрытая сессия основателя открыта'); }} />;
-  else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={accessAction} />;
-  else if (route === 'categories') page = <CategoriesView videos={state.videos} categories={state.categories} navigate={navigate} />;
+  if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={accessAction} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;
   else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;
   else if (route === 'notifications') page = can(role, 'view_profile') ? <NotificationView notifications={state.notifications} markAllRead={markAllNotifications} markRead={markNotification} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;

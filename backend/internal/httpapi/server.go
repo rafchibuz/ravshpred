@@ -59,7 +59,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/me", s.me)
 	mux.HandleFunc("GET /api/auth/twitch/start", s.twitchStart)
 	mux.HandleFunc("GET /api/auth/twitch/callback", s.twitchCallback)
-	mux.HandleFunc("POST /api/founder/session", s.founderSession)
 	mux.HandleFunc("POST /api/dev/session", s.devSession)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("POST /api/submissions", s.createSubmission)
@@ -221,40 +220,19 @@ func (s *Server) twitchCallback(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
+	if (s.cfg.OwnerTwitchID != "" && twitchUser.ID == s.cfg.OwnerTwitchID) ||
+		strings.EqualFold(twitchUser.Login, s.cfg.OwnerTwitchLogin) {
+		user, err = s.store.PromoteTwitchOwner(r.Context(), user.ID)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+	}
 	if err := s.issueSession(w, r, user); err != nil {
 		s.internalError(w, err)
 		return
 	}
 	http.Redirect(w, r, strings.TrimRight(s.cfg.BaseURL, "/")+returnTo, http.StatusFound)
-}
-
-func (s *Server) founderSession(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.OwnerBootstrapHash == "" {
-		writeError(w, http.StatusNotFound, "not_found", "Маршрут не найден")
-		return
-	}
-	var input struct {
-		Secret string `json:"secret"`
-	}
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	actual := hex.EncodeToString(hash(input.Secret))
-	expected := strings.ToLower(strings.TrimSpace(s.cfg.OwnerBootstrapHash))
-	if len(actual) != len(expected) || subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) != 1 {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверный ключ доступа")
-		return
-	}
-	user, err := s.store.EnsureOwner(r.Context())
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	if err := s.issueSession(w, r, user); err != nil {
-		s.internalError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
 }
 
 func (s *Server) devSession(w http.ResponseWriter, r *http.Request) {

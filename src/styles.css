@@ -117,6 +117,16 @@
   .video-management label, .video-management button { width: 100%; }
 }
 
+.video-card .thumb { height: auto; aspect-ratio: 16 / 9; background: #050507 !important; }
+.youtube-thumb { object-fit: contain; background: #050507; }
+.promo-image { height: auto; min-height: 340px; aspect-ratio: 3 / 4; background: #f4f4f4 url('/assets/banner.png') center / contain no-repeat; filter: none; }
+.rank-row { width: 100%; color: inherit; background: transparent; text-align: left; cursor: pointer; border-radius: 5px; }
+.rank-row:hover, .rank-row:focus-visible { background: #24202a; outline: none; }
+.manage-video-btn { width: 100%; min-height: 34px; margin-top: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #71469d; border-radius: 7px; background: #291a39; color: #d5afff; font-size: 10px; font-weight: 800; }
+.manage-video-btn:hover { border-color: #a75cff; background: #39204f; color: #fff; }
+.queue-item .thumb { aspect-ratio: auto; }
+.review .thumb-large { height: 260px; aspect-ratio: auto; }
+
 @media (pointer: coarse) {
   button, a.outline-btn, .chip-scroll button, .queue-tabs button { min-height: 44px; }
 }

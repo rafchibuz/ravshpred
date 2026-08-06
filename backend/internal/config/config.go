@@ -16,14 +16,12 @@ type Config struct {
 	SessionCookieName   string
 	SessionTTL          time.Duration
 	OwnerTwitchID       string
+	OwnerTwitchLogin    string
 	TwitchClientID      string
 	TwitchClientSecret  string
 	TwitchRedirectURL   string
 	YouTubeAPIKey       string
 	TurnstileSecretKey  string
-	OwnerBootstrapHash  string
-	OwnerRPID           string
-	OwnerRPOrigin       string
 	AllowDevAuth        bool
 	ShutdownGracePeriod time.Duration
 }
@@ -37,14 +35,12 @@ func Load() (Config, error) {
 		SessionCookieName:   env("SESSION_COOKIE_NAME", "ravshann_session"),
 		SessionTTL:          durationEnv("SESSION_TTL", 30*24*time.Hour),
 		OwnerTwitchID:       os.Getenv("OWNER_TWITCH_ID"),
+		OwnerTwitchLogin:    strings.ToLower(env("OWNER_TWITCH_LOGIN", "rafchibiskus")),
 		TwitchClientID:      os.Getenv("TWITCH_CLIENT_ID"),
 		TwitchClientSecret:  os.Getenv("TWITCH_CLIENT_SECRET"),
 		TwitchRedirectURL:   os.Getenv("TWITCH_REDIRECT_URL"),
 		YouTubeAPIKey:       os.Getenv("YOUTUBE_API_KEY"),
 		TurnstileSecretKey:  os.Getenv("TURNSTILE_SECRET_KEY"),
-		OwnerBootstrapHash:  os.Getenv("OWNER_BOOTSTRAP_TOKEN_HASH"),
-		OwnerRPID:           env("OWNER_WEBAUTHN_RP_ID", "localhost"),
-		OwnerRPOrigin:       env("OWNER_WEBAUTHN_ORIGIN", "http://localhost:5173"),
 		AllowDevAuth:        boolEnv("ALLOW_DEV_AUTH", false),
 		ShutdownGracePeriod: durationEnv("SHUTDOWN_GRACE_PERIOD", 10*time.Second),
 	}
