@@ -1,0 +1,765 @@
+package httpapi
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/ravshann/predlozhka/backend/internal/config"
+	"github.com/ravshann/predlozhka/backend/internal/domain"
+	"github.com/ravshann/predlozhka/backend/internal/store"
+	"github.com/ravshann/predlozhka/backend/internal/twitch"
+	"github.com/ravshann/predlozhka/backend/internal/youtube"
+)
+
+type Server struct {
+	cfg     config.Config
+	store   store.Store
+	youtube youtube.Client
+	twitch  *twitch.Client
+	logger  *slog.Logger
+}
+
+type actorContext struct {
+	User     domain.User
+	CSRFHash []byte
+	Dev      bool
+}
+
+type contextKey string
+
+const actorKey contextKey = "actor"
+
+func New(cfg config.Config, database store.Store, youtubeClient youtube.Client, logger *slog.Logger) *Server {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Server{
+		cfg: cfg, store: database, youtube: youtubeClient,
+		twitch: twitch.New(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchRedirectURL),
+		logger: logger,
+	}
+}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health/live", s.live)
+	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /api/categories", s.categories)
+	mux.HandleFunc("GET /api/videos", s.feed)
+	mux.HandleFunc("GET /api/me", s.me)
+	mux.HandleFunc("GET /api/auth/twitch/start", s.twitchStart)
+	mux.HandleFunc("GET /api/auth/twitch/callback", s.twitchCallback)
+	mux.HandleFunc("POST /api/founder/session", s.founderSession)
+	mux.HandleFunc("POST /api/dev/session", s.devSession)
+	mux.HandleFunc("POST /api/logout", s.logout)
+	mux.HandleFunc("POST /api/submissions", s.createSubmission)
+	mux.HandleFunc("GET /api/submissions/mine", s.mine)
+	mux.HandleFunc("GET /api/notifications", s.notifications)
+	mux.HandleFunc("POST /api/notifications/read-all", s.readAllNotifications)
+	mux.HandleFunc("POST /api/notifications/{id}/read", s.readNotification)
+	mux.HandleFunc("PUT /api/videos/{id}/vote", s.vote)
+	mux.HandleFunc("GET /api/moderation/submissions", s.moderationList)
+	mux.HandleFunc("PATCH /api/moderation/submissions/{id}", s.moderate)
+	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/watched", s.watched)
+	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/category", s.videoCategory)
+	mux.HandleFunc("DELETE /api/moderation/submissions/{id}", s.deleteVideo)
+	mux.HandleFunc("POST /api/owner/categories", s.createCategory)
+	mux.HandleFunc("DELETE /api/owner/categories/{id}", s.deleteCategory)
+	mux.HandleFunc("POST /api/owner/moderators", s.assignModerator)
+	mux.HandleFunc("GET /api/owner/moderators", s.listModerators)
+	mux.HandleFunc("DELETE /api/owner/moderators/{id}", s.removeModerator)
+	mux.HandleFunc("GET /api/owner/audit", s.audit)
+	mux.HandleFunc("GET /api/owner/settings", s.settings)
+	mux.HandleFunc("PUT /api/owner/settings", s.updateSettings)
+	return s.middleware(mux)
+}
+
+func (s *Server) middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		requestID := randomToken(12)
+		w.Header().Set("X-Request-ID", requestID)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		if origin := r.Header.Get("Origin"); origin != "" && origin == s.cfg.FrontendURL {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,X-CSRF-Token,X-Dev-Role")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				s.logger.Error("panic", "request_id", requestID, "error", recovered)
+				writeError(w, http.StatusInternalServerError, "internal_error", "Внутренняя ошибка")
+			}
+			s.logger.Info("request",
+				"request_id", requestID,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"duration_ms", time.Since(start).Milliseconds(),
+			)
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) live(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "База данных недоступна")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+func (s *Server) categories(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListCategories(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) feed(w http.ResponseWriter, r *http.Request) {
+	actor, _ := s.actor(r)
+	params := store.FeedParams{
+		Category: r.URL.Query().Get("category"),
+		Sort:     r.URL.Query().Get("sort"),
+		Cursor:   r.URL.Query().Get("cursor"),
+		Limit:    intQuery(r, "limit", 20),
+	}
+	if actor != nil {
+		params.UserID = actor.User.ID
+	}
+	if value := r.URL.Query().Get("watched"); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_filter", "Некорректный фильтр watched")
+			return
+		}
+		params.Watched = &parsed
+	}
+	items, next, err := s.store.ListFeed(r.Context(), params)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "next_cursor": next})
+}
+
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	actor, err := s.actor(r)
+	if err != nil || actor == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": actor.User})
+}
+
+func (s *Server) twitchStart(w http.ResponseWriter, r *http.Request) {
+	if !s.twitch.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "twitch_not_configured", "Вход через Twitch ещё не настроен")
+		return
+	}
+	state, verifier := randomToken(32), randomToken(32)
+	returnTo := r.URL.Query().Get("return_to")
+	if !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") {
+		returnTo = "/"
+	}
+	if err := s.store.CreateOAuthState(r.Context(), hash(state), hash(verifier), returnTo, time.Now().Add(10*time.Minute)); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	http.Redirect(w, r, s.twitch.AuthorizationURL(state), http.StatusFound)
+}
+
+func (s *Server) twitchCallback(w http.ResponseWriter, r *http.Request) {
+	if oauthError := r.URL.Query().Get("error"); oauthError != "" {
+		http.Redirect(w, r, s.cfg.BaseURL+"/?auth_error=denied", http.StatusFound)
+		return
+	}
+	state, code := r.URL.Query().Get("state"), r.URL.Query().Get("code")
+	if state == "" || code == "" {
+		http.Redirect(w, r, s.cfg.BaseURL+"/?auth_error=invalid_callback", http.StatusFound)
+		return
+	}
+	returnTo, err := s.store.ConsumeOAuthState(r.Context(), hash(state))
+	if err != nil {
+		http.Redirect(w, r, s.cfg.BaseURL+"/?auth_error=expired_state", http.StatusFound)
+		return
+	}
+	twitchUser, err := s.twitch.Exchange(r.Context(), code)
+	if err != nil {
+		s.logger.Error("twitch authentication failed", "error", err)
+		http.Redirect(w, r, s.cfg.BaseURL+"/?auth_error=twitch", http.StatusFound)
+		return
+	}
+	user, err := s.store.UpsertTwitchUser(r.Context(), twitchUser.ID, twitchUser.Login, twitchUser.DisplayName, twitchUser.AvatarURL)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if err := s.issueSession(w, r, user); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	http.Redirect(w, r, strings.TrimRight(s.cfg.BaseURL, "/")+returnTo, http.StatusFound)
+}
+
+func (s *Server) founderSession(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.OwnerBootstrapHash == "" {
+		writeError(w, http.StatusNotFound, "not_found", "Маршрут не найден")
+		return
+	}
+	var input struct {
+		Secret string `json:"secret"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	actual := hex.EncodeToString(hash(input.Secret))
+	expected := strings.ToLower(strings.TrimSpace(s.cfg.OwnerBootstrapHash))
+	if len(actual) != len(expected) || subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) != 1 {
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверный ключ доступа")
+		return
+	}
+	user, err := s.store.EnsureOwner(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if err := s.issueSession(w, r, user); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
+}
+
+func (s *Server) devSession(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.AllowDevAuth {
+		writeError(w, http.StatusNotFound, "not_found", "Маршрут не найден")
+		return
+	}
+	var input struct {
+		Role domain.Role `json:"role"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Role != domain.RoleUser && input.Role != domain.RoleModerator && input.Role != domain.RoleOwner {
+		writeError(w, http.StatusBadRequest, "invalid_role", "Неизвестная роль")
+		return
+	}
+	user, err := s.store.EnsureDevUser(r.Context(), input.Role)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if err := s.issueSession(w, r, user); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
+}
+
+func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user domain.User) error {
+	token, csrf := randomToken(32), randomToken(24)
+	expires := time.Now().Add(s.cfg.SessionTTL)
+	if err := s.store.CreateSession(r.Context(), user.ID, hash(token), hash(csrf), expires); err != nil {
+		return err
+	}
+	s.setSessionCookies(w, token, csrf, expires)
+	return nil
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(s.cfg.SessionCookieName); err == nil {
+		_ = s.store.RevokeSession(r.Context(), hash(cookie.Value))
+	}
+	s.clearSessionCookies(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "submit")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		URL        string `json:"url"`
+		CategoryID string `json:"category_id"`
+		Comment    string `json:"comment"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	settings, err := s.store.GetSettings(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if len([]rune(input.Comment)) > settings.CommentLimit {
+		writeError(w, http.StatusBadRequest, "comment_too_long", "Комментарий превышает допустимую длину")
+		return
+	}
+	id, err := domain.ParseYouTubeID(input.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_youtube_url", "Некорректная ссылка YouTube")
+		return
+	}
+	metadata, err := s.youtube.Fetch(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "youtube_unavailable", err.Error())
+		return
+	}
+	video, err := s.store.CreateSubmission(r.Context(), store.CreateSubmissionInput{
+		YouTubeID:        id,
+		YouTubeURL:       domain.CanonicalYouTubeURL(id),
+		Title:            metadata.Title,
+		ChannelTitle:     metadata.ChannelTitle,
+		ThumbnailURL:     metadata.ThumbnailURL,
+		DurationSeconds:  metadata.DurationSeconds,
+		ViewCount:        metadata.ViewCount,
+		YouTubeLikeCount: metadata.YouTubeLikeCount,
+		AuthorID:         actor.User.ID,
+		CategoryID:       input.CategoryID,
+		Comment:          input.Comment,
+		DailyLimit:       settings.SubmissionDailyLimit,
+	})
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": video})
+}
+
+func (s *Server) mine(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "view_profile")
+	if actor == nil {
+		return
+	}
+	items, err := s.store.ListMine(r.Context(), actor.User.ID, intQuery(r, "limit", 50))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) notifications(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "view_profile")
+	if actor == nil {
+		return
+	}
+	items, err := s.store.ListNotifications(r.Context(), actor.User.ID, intQuery(r, "limit", 50))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) readNotification(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "view_profile")
+	if actor == nil {
+		return
+	}
+	if err := s.store.MarkNotificationRead(r.Context(), actor.User.ID, r.PathValue("id")); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) readAllNotifications(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "view_profile")
+	if actor == nil {
+		return
+	}
+	if err := s.store.MarkAllNotificationsRead(r.Context(), actor.User.ID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) vote(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "vote")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Value int `json:"value"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	rating, current, err := s.store.Vote(r.Context(), r.PathValue("id"), actor.User.ID, input.Value)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rating": rating, "user_vote": current})
+}
+
+func (s *Server) moderationList(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "moderate") == nil {
+		return
+	}
+	status := domain.SubmissionStatus(r.URL.Query().Get("status"))
+	if status == "" {
+		status = domain.StatusPending
+	}
+	items, err := s.store.ListByStatus(r.Context(), status, intQuery(r, "limit", 50))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) moderate(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "moderate")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Status     domain.SubmissionStatus `json:"status"`
+		ReasonCode string                  `json:"reason_code"`
+		Comment    string                  `json:"comment"`
+		Version    int                     `json:"version"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	video, err := s.store.Decide(r.Context(), store.DecideInput{
+		SubmissionID: r.PathValue("id"),
+		ModeratorID:  actor.User.ID,
+		Status:       input.Status,
+		ReasonCode:   input.ReasonCode,
+		Comment:      input.Comment,
+		Version:      input.Version,
+	})
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": video})
+}
+
+func (s *Server) watched(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "mark_watched")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Watched bool `json:"watched"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.store.SetWatched(r.Context(), r.PathValue("id"), actor.User.ID, input.Watched); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) videoCategory(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "moderate")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		CategoryID string `json:"category_id"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.store.UpdateVideoCategory(r.Context(), r.PathValue("id"), input.CategoryID, actor.User.ID); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) deleteVideo(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "moderate")
+	if actor == nil {
+		return
+	}
+	if err := s.store.DeleteVideo(r.Context(), r.PathValue("id"), actor.User.ID); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) createCategory(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Slug == "" {
+		input.Slug = "category-" + strconv.FormatInt(time.Now().Unix(), 36)
+	}
+	category, err := s.store.CreateCategory(r.Context(), input.Slug, strings.TrimSpace(input.Name), actor.User.ID)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": category})
+}
+
+func (s *Server) deleteCategory(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	if err := s.store.DeleteCategory(r.Context(), r.PathValue("id"), actor.User.ID); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) assignModerator(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		TwitchLogin string `json:"twitch_login"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	user, err := s.store.AssignModerator(r.Context(), strings.TrimPrefix(strings.TrimSpace(input.TwitchLogin), "@"), actor.User.ID)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": user})
+}
+
+func (s *Server) listModerators(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "manage") == nil {
+		return
+	}
+	users, err := s.store.ListModerators(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": users})
+}
+
+func (s *Server) removeModerator(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	if err := s.store.RemoveModerator(r.Context(), r.PathValue("id"), actor.User.ID); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "manage") == nil {
+		return
+	}
+	items, err := s.store.ListAudit(r.Context(), intQuery(r, "limit", 100))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "manage") == nil {
+		return
+	}
+	settings, err := s.store.GetSettings(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": settings})
+}
+
+func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	var input domain.GlobalSettings
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.SubmissionDailyLimit < 1 || input.SubmissionDailyLimit > 20 ||
+		input.CommentLimit < 100 || input.CommentLimit > 2000 {
+		writeError(w, http.StatusBadRequest, "invalid_settings", "Настройки вне допустимого диапазона")
+		return
+	}
+	if err := s.store.UpdateSettings(r.Context(), input, actor.User.ID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": input})
+}
+
+func (s *Server) actor(r *http.Request) (*actorContext, error) {
+	if value := r.Context().Value(actorKey); value != nil {
+		return value.(*actorContext), nil
+	}
+	if s.cfg.AllowDevAuth {
+		if role := domain.Role(r.Header.Get("X-Dev-Role")); role != "" {
+			user, err := s.store.EnsureDevUser(r.Context(), role)
+			if err != nil {
+				return nil, err
+			}
+			return &actorContext{User: user, Dev: true}, nil
+		}
+	}
+	cookie, err := r.Cookie(s.cfg.SessionCookieName)
+	if err != nil {
+		return nil, store.ErrNotFound
+	}
+	session, err := s.store.SessionByTokenHash(r.Context(), hash(cookie.Value))
+	if err != nil {
+		return nil, err
+	}
+	return &actorContext{User: session.User, CSRFHash: session.CSRFHash}, nil
+}
+
+func (s *Server) require(w http.ResponseWriter, r *http.Request, action string) *actorContext {
+	actor, err := s.actor(r)
+	if err != nil || actor == nil {
+		writeError(w, http.StatusUnauthorized, "authentication_required", "Требуется авторизация")
+		return nil
+	}
+	if !domain.Can(actor.User.Role, action) {
+		writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав")
+		return nil
+	}
+	if !actor.Dev && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		csrfCookie, err := r.Cookie(s.cfg.SessionCookieName + "_csrf")
+		csrfHeader := r.Header.Get("X-CSRF-Token")
+		if err != nil || csrfHeader == "" || csrfCookie.Value != csrfHeader || subtle.ConstantTimeCompare(hash(csrfHeader), actor.CSRFHash) != 1 {
+			writeError(w, http.StatusForbidden, "csrf_failed", "CSRF-проверка не пройдена")
+			return nil
+		}
+	}
+	return actor
+}
+
+func (s *Server) setSessionCookies(w http.ResponseWriter, token, csrf string, expires time.Time) {
+	secure := strings.HasPrefix(s.cfg.BaseURL, "https://")
+	http.SetCookie(w, &http.Cookie{
+		Name: s.cfg.SessionCookieName, Value: token, Path: "/", HttpOnly: true,
+		Secure: secure, SameSite: http.SameSiteLaxMode, Expires: expires, MaxAge: int(time.Until(expires).Seconds()),
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name: s.cfg.SessionCookieName + "_csrf", Value: csrf, Path: "/",
+		Secure: secure, SameSite: http.SameSiteLaxMode, Expires: expires, MaxAge: int(time.Until(expires).Seconds()),
+	})
+}
+
+func (s *Server) clearSessionCookies(w http.ResponseWriter) {
+	for _, name := range []string{s.cfg.SessionCookieName, s.cfg.SessionCookieName + "_csrf"} {
+		http.SetCookie(w, &http.Cookie{Name: name, Path: "/", MaxAge: -1, Expires: time.Unix(1, 0), HttpOnly: name == s.cfg.SessionCookieName})
+	}
+}
+
+func (s *Server) storeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "Запись не найдена")
+	case errors.Is(err, store.ErrConflict), errors.Is(err, store.ErrVersionConflict), errors.Is(err, store.ErrDuplicate):
+		writeError(w, http.StatusConflict, "conflict", err.Error())
+	case errors.Is(err, store.ErrSelfVote):
+		writeError(w, http.StatusForbidden, "self_vote_forbidden", "Нельзя голосовать за собственное видео")
+	case errors.Is(err, store.ErrDailyLimit):
+		writeError(w, http.StatusTooManyRequests, "daily_limit", "Достигнут лимит отправок за 24 часа")
+	default:
+		s.internalError(w, err)
+	}
+}
+
+func (s *Server) internalError(w http.ResponseWriter, err error) {
+	s.logger.Error("request failed", "error", err)
+	writeError(w, http.StatusInternalServerError, "internal_error", "Внутренняя ошибка")
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON")
+		return false
+	}
+	return true
+}
+
+func intQuery(r *http.Request, key string, fallback int) int {
+	value, err := strconv.Atoi(r.URL.Query().Get(key))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
+}
+
+func randomToken(bytes int) string {
+	raw := make([]byte, bytes)
+	if _, err := rand.Read(raw); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(raw)
+}
+
+func hash(value string) []byte {
+	sum := sha256.Sum256([]byte(value))
+	return sum[:]
+}

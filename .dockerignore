@@ -1,0 +1,10 @@
+.git
+.pnpm-store
+node_modules
+dist
+tmp
+.tmp-pdf
+.env
+backend/.git
+backend/tmp
+

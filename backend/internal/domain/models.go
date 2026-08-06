@@ -1,0 +1,122 @@
+package domain
+
+import (
+	"encoding/json"
+	"time"
+)
+
+type Role string
+
+const (
+	RoleUser      Role = "user"
+	RoleModerator Role = "moderator"
+	RoleOwner     Role = "owner"
+)
+
+type SubmissionStatus string
+
+const (
+	StatusPending          SubmissionStatus = "pending"
+	StatusApproved         SubmissionStatus = "approved"
+	StatusRejected         SubmissionStatus = "rejected"
+	StatusChangesRequested SubmissionStatus = "changes_requested"
+	StatusHidden           SubmissionStatus = "hidden"
+)
+
+type User struct {
+	ID        string    `json:"id"`
+	TwitchID  string    `json:"twitch_id"`
+	Login     string    `json:"login"`
+	Display   string    `json:"display_name"`
+	AvatarURL string    `json:"avatar_url"`
+	Role      Role      `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Category struct {
+	ID        string    `json:"id"`
+	Slug      string    `json:"slug"`
+	Name      string    `json:"name"`
+	IsSystem  bool      `json:"is_system"`
+	SortOrder int       `json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Video struct {
+	ID               string           `json:"id"`
+	YouTubeID        string           `json:"youtube_id"`
+	YouTubeURL       string           `json:"youtube_url"`
+	Title            string           `json:"title"`
+	ChannelTitle     string           `json:"channel_title"`
+	ThumbnailURL     string           `json:"thumbnail_url"`
+	DurationSeconds  int              `json:"duration_seconds"`
+	ViewCount        int64            `json:"view_count"`
+	YouTubeLikeCount int64            `json:"youtube_like_count"`
+	Author           User             `json:"author"`
+	Category         Category         `json:"category"`
+	Status           SubmissionStatus `json:"status"`
+	SubmitterComment string           `json:"submitter_comment"`
+	ModeratorComment string           `json:"moderator_comment,omitempty"`
+	Watched          bool             `json:"watched"`
+	Rating           int64            `json:"rating"`
+	UserVote         int              `json:"user_vote,omitempty"`
+	Version          int              `json:"version"`
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
+}
+
+type Notification struct {
+	ID        string     `json:"id"`
+	Type      string     `json:"type"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type AuditEntry struct {
+	ID         int64           `json:"id"`
+	Actor      *User           `json:"actor,omitempty"`
+	Action     string          `json:"action"`
+	TargetType string          `json:"target_type"`
+	TargetID   string          `json:"target_id"`
+	Metadata   json.RawMessage `json:"metadata"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+type GlobalSettings struct {
+	SubmissionDailyLimit int  `json:"submission_daily_limit"`
+	CommentLimit         int  `json:"submission_comment_limit"`
+	PublicFeedEnabled    bool `json:"public_feed_enabled"`
+	AllowSelfVote        bool `json:"allow_self_vote"`
+}
+
+func Can(role Role, action string) bool {
+	switch action {
+	case "view_feed", "open_video":
+		return true
+	case "submit", "vote", "view_profile":
+		return role == RoleUser || role == RoleModerator || role == RoleOwner
+	case "moderate", "mark_watched":
+		return role == RoleModerator || role == RoleOwner
+	case "manage":
+		return role == RoleOwner
+	default:
+		return false
+	}
+}
+
+func CanTransition(from, to SubmissionStatus) bool {
+	switch from {
+	case StatusPending, StatusChangesRequested:
+		return to == StatusApproved || to == StatusRejected || to == StatusChangesRequested || to == StatusHidden
+	case StatusApproved:
+		return to == StatusRejected || to == StatusHidden
+	case StatusRejected:
+		return to == StatusPending || to == StatusHidden
+	case StatusHidden:
+		return to == StatusApproved
+	default:
+		return false
+	}
+}

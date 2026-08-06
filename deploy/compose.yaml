@@ -1,0 +1,75 @@
+name: ravshann-predlozhka
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ravshann
+      POSTGRES_USER: ravshann
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ravshann}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../backend/migrations/000001_init.up.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ravshann -d ravshann"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_ADDRESS: :8080
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8088}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8088}
+      DATABASE_URL: postgres://ravshann:${POSTGRES_PASSWORD:-ravshann}@postgres:5432/ravshann?sslmode=disable
+      SESSION_COOKIE_NAME: ravshann_session
+      SESSION_TTL: 720h
+      OWNER_TWITCH_ID: ${OWNER_TWITCH_ID:-}
+      OWNER_BOOTSTRAP_TOKEN_HASH: ${OWNER_BOOTSTRAP_TOKEN_HASH:-}
+      OWNER_WEBAUTHN_RP_ID: ${OWNER_WEBAUTHN_RP_ID:-localhost}
+      OWNER_WEBAUTHN_ORIGIN: ${OWNER_WEBAUTHN_ORIGIN:-http://localhost:8088}
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
+      TWITCH_REDIRECT_URL: ${TWITCH_REDIRECT_URL:-http://localhost:8088/api/auth/twitch/callback}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      ALLOW_DEV_AUTH: ${ALLOW_DEV_AUTH:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/frontend.Dockerfile
+      args:
+        VITE_QA_MODE: ${VITE_QA_MODE:-1}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LOCAL_HTTP_PORT:-8088}:80"
+    depends_on:
+      - api
+    networks: [internal]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["production"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:

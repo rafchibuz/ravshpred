@@ -2,7 +2,8 @@ node_modules/
 dist/
 .pnpm-store/
 .tmp-pdf/
+tmp/
+.vite/
 .env
 .env.*
 !.env.example
-
