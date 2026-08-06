@@ -32,7 +32,6 @@ type Server struct {
 type actorContext struct {
 	User     domain.User
 	CSRFHash []byte
-	Dev      bool
 }
 
 type contextKey string
@@ -59,7 +58,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/me", s.me)
 	mux.HandleFunc("GET /api/auth/twitch/start", s.twitchStart)
 	mux.HandleFunc("GET /api/auth/twitch/callback", s.twitchCallback)
-	mux.HandleFunc("POST /api/dev/session", s.devSession)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("POST /api/submissions", s.createSubmission)
 	mux.HandleFunc("GET /api/submissions/mine", s.mine)
@@ -98,7 +96,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,X-CSRF-Token,X-Dev-Role")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,X-CSRF-Token")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -233,33 +231,6 @@ func (s *Server) twitchCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, strings.TrimRight(s.cfg.BaseURL, "/")+returnTo, http.StatusFound)
-}
-
-func (s *Server) devSession(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.AllowDevAuth {
-		writeError(w, http.StatusNotFound, "not_found", "Маршрут не найден")
-		return
-	}
-	var input struct {
-		Role domain.Role `json:"role"`
-	}
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	if input.Role != domain.RoleUser && input.Role != domain.RoleModerator && input.Role != domain.RoleOwner {
-		writeError(w, http.StatusBadRequest, "invalid_role", "Неизвестная роль")
-		return
-	}
-	user, err := s.store.EnsureDevUser(r.Context(), input.Role)
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	if err := s.issueSession(w, r, user); err != nil {
-		s.internalError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
 }
 
 func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user domain.User) error {
@@ -622,15 +593,6 @@ func (s *Server) actor(r *http.Request) (*actorContext, error) {
 	if value := r.Context().Value(actorKey); value != nil {
 		return value.(*actorContext), nil
 	}
-	if s.cfg.AllowDevAuth {
-		if role := domain.Role(r.Header.Get("X-Dev-Role")); role != "" {
-			user, err := s.store.EnsureDevUser(r.Context(), role)
-			if err != nil {
-				return nil, err
-			}
-			return &actorContext{User: user, Dev: true}, nil
-		}
-	}
 	cookie, err := r.Cookie(s.cfg.SessionCookieName)
 	if err != nil {
 		return nil, store.ErrNotFound
@@ -652,7 +614,7 @@ func (s *Server) require(w http.ResponseWriter, r *http.Request, action string) 
 		writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав")
 		return nil
 	}
-	if !actor.Dev && r.Method != http.MethodGet && r.Method != http.MethodHead {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		csrfCookie, err := r.Cookie(s.cfg.SessionCookieName + "_csrf")
 		csrfHeader := r.Header.Get("X-CSRF-Token")
 		if err != nil || csrfHeader == "" || csrfCookie.Value != csrfHeader || subtle.ConstantTimeCompare(hash(csrfHeader), actor.CSRFHash) != 1 {

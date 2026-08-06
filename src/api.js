@@ -10,11 +10,10 @@ function csrfToken() {
     .join('=') || '';
 }
 
-async function request(path, { role, body, ...options } = {}) {
+async function request(path, { body, ...options } = {}) {
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
   if (body !== undefined) headers.set('Content-Type', 'application/json');
-  if (role && role !== 'guest') headers.set('X-Dev-Role', role);
   const csrf = csrfToken();
   if (csrf && !['GET', 'HEAD'].includes(options.method || 'GET')) {
     headers.set('X-CSRF-Token', csrf);
@@ -87,19 +86,19 @@ export function normalizeVideo(video) {
   };
 }
 
-export async function loadWorkspace(role, authRole = role) {
-  const categoriesResponse = await request('/categories', { role: authRole });
+export async function loadWorkspace(role) {
+  const categoriesResponse = await request('/categories');
   const categoryRecords = categoriesResponse.data || [];
-  const requests = [request('/videos?limit=100', { role: authRole })];
+  const requests = [request('/videos?limit=100')];
 
   if (role === 'moderator' || role === 'owner') {
     requests.push(
-      request('/moderation/submissions?status=pending&limit=100', { role: authRole }),
-      request('/moderation/submissions?status=approved&limit=100', { role: authRole }),
-      request('/moderation/submissions?status=rejected&limit=100', { role: authRole }),
+      request('/moderation/submissions?status=pending&limit=100'),
+      request('/moderation/submissions?status=approved&limit=100'),
+      request('/moderation/submissions?status=rejected&limit=100'),
     );
   } else if (role === 'user') {
-    requests.push(request('/submissions/mine?limit=100', { role: authRole }));
+    requests.push(request('/submissions/mine?limit=100'));
   }
 
   const responses = await Promise.all(requests);
@@ -113,7 +112,7 @@ export async function loadWorkspace(role, authRole = role) {
     videos: [...videosById.values()],
   };
   if (['user', 'moderator', 'owner'].includes(role)) {
-    const notifications = await request('/notifications?limit=100', { role: authRole });
+    const notifications = await request('/notifications?limit=100');
     result.notifications = (notifications.data || []).map((notice) => ({
       id: notice.id,
       title: notice.title,
@@ -125,9 +124,9 @@ export async function loadWorkspace(role, authRole = role) {
   }
   if (role === 'owner') {
     const [moderators, audit, settings] = await Promise.all([
-      request('/owner/moderators', { role: authRole }),
-      request('/owner/audit?limit=100', { role: authRole }),
-      request('/owner/settings', { role: authRole }),
+      request('/owner/moderators'),
+      request('/owner/audit?limit=100'),
+      request('/owner/settings'),
     ]);
     result.moderatorRecords = moderators.data || [];
     result.moderators = result.moderatorRecords.map((user) => user.login || user.display_name);
@@ -146,79 +145,73 @@ export async function loadWorkspace(role, authRole = role) {
   return result;
 }
 
-export function createSubmission(role, input) {
-  return request('/submissions', { method: 'POST', role, body: input })
+export function createSubmission(input) {
+  return request('/submissions', { method: 'POST', body: input })
     .then((payload) => normalizeVideo(payload.data));
 }
 
-export function vote(role, videoId, value) {
-  return request(`/videos/${videoId}/vote`, { method: 'PUT', role, body: { value } });
+export function vote(videoId, value) {
+  return request(`/videos/${videoId}/vote`, { method: 'PUT', body: { value } });
 }
 
-export function decide(role, videoId, status, comment, version) {
+export function decide(videoId, status, comment, version) {
   return request(`/moderation/submissions/${videoId}`, {
     method: 'PATCH',
-    role,
     body: { status, comment, reason_code: '', version },
   }).then((payload) => normalizeVideo(payload.data));
 }
 
-export function setWatched(role, videoId, watched) {
+export function setWatched(videoId, watched) {
   return request(`/moderation/submissions/${videoId}/watched`, {
     method: 'PATCH',
-    role,
     body: { watched },
   });
 }
 
-export function deleteVideo(role, videoId) {
-  return request(`/moderation/submissions/${videoId}`, { method: 'DELETE', role });
+export function deleteVideo(videoId) {
+  return request(`/moderation/submissions/${videoId}`, { method: 'DELETE' });
 }
 
-export function setVideoCategory(role, videoId, categoryId) {
+export function setVideoCategory(videoId, categoryId) {
   return request(`/moderation/submissions/${videoId}/category`, {
     method: 'PATCH',
-    role,
     body: { category_id: categoryId },
   });
 }
 
-export function createCategory(role, name) {
+export function createCategory(name) {
   return request('/owner/categories', {
     method: 'POST',
-    role,
     body: { name },
   }).then((payload) => payload.data);
 }
 
-export function deleteCategory(role, categoryId) {
-  return request(`/owner/categories/${categoryId}`, { method: 'DELETE', role });
+export function deleteCategory(categoryId) {
+  return request(`/owner/categories/${categoryId}`, { method: 'DELETE' });
 }
 
-export function assignModerator(role, twitchLogin) {
+export function assignModerator(twitchLogin) {
   return request('/owner/moderators', {
     method: 'POST',
-    role,
     body: { twitch_login: twitchLogin },
   }).then((payload) => payload.data);
 }
 
-export function removeModerator(role, userId) {
-  return request(`/owner/moderators/${userId}`, { method: 'DELETE', role });
+export function removeModerator(userId) {
+  return request(`/owner/moderators/${userId}`, { method: 'DELETE' });
 }
 
-export function readNotification(role, notificationId) {
-  return request(`/notifications/${notificationId}/read`, { method: 'POST', role });
+export function readNotification(notificationId) {
+  return request(`/notifications/${notificationId}/read`, { method: 'POST' });
 }
 
-export function readAllNotifications(role) {
-  return request('/notifications/read-all', { method: 'POST', role });
+export function readAllNotifications() {
+  return request('/notifications/read-all', { method: 'POST' });
 }
 
-export function updateSettings(role, settings) {
+export function updateSettings(settings) {
   return request('/owner/settings', {
     method: 'PUT',
-    role,
     body: {
       submission_daily_limit: settings.dailyLimit,
       submission_comment_limit: settings.commentLimit,

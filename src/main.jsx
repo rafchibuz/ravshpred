@@ -4,7 +4,6 @@ import {
   ArrowUpRight,
   Bell,
   Check,
-  ChevronDown,
   Clock3,
   ExternalLink,
   Eye,
@@ -16,7 +15,6 @@ import {
   Menu,
   Play,
   Plus,
-  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
@@ -33,8 +31,6 @@ import {
   parseYouTubeId,
   recentSubmissionCount,
   removeCategory,
-  toggleVote,
-  transitionSubmission,
   voteTotals,
 } from './domain.js';
 import * as api from './api.js';
@@ -290,24 +286,28 @@ function makeInitialState() {
   };
 }
 
-function useProjectState(role, demoMode) {
-  const [state, setState] = useState(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : makeInitialState();
-    } catch {
-      return makeInitialState();
-    }
-  });
+function emptyServerState() {
+  return {
+    categories: [],
+    categoryRecords: [],
+    moderators: [],
+    moderatorRecords: [],
+    videos: [],
+    notifications: [],
+    audit: [],
+    auditRecords: [],
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false },
+  };
+}
+
+function useProjectState(role) {
+  const [state, setState] = useState(emptyServerState);
   const [apiReady, setApiReady] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
-
-  useEffect(() => {
     let active = true;
-    api.loadWorkspace(role, demoMode ? role : undefined)
+    setApiReady(false);
+    api.loadWorkspace(role)
       .then((workspace) => {
         if (!active) return;
         setState((current) => ({ ...current, ...workspace }));
@@ -319,10 +319,10 @@ function useProjectState(role, demoMode) {
     return () => {
       active = false;
     };
-  }, [role, demoMode]);
+  }, [role]);
 
   const reload = async () => {
-    const workspace = await api.loadWorkspace(role, demoMode ? role : undefined);
+    const workspace = await api.loadWorkspace(role);
     setState((current) => ({ ...current, ...workspace }));
     setApiReady(true);
   };
@@ -405,7 +405,7 @@ function Sidebar({ route, navigate, role, unread, actor }) {
   );
 }
 
-function Topbar({ role, search, setSearch, navigate, demoMode, openRoleSwitcher, openAuth, onSignOut, unread, actor }) {
+function Topbar({ role, search, setSearch, navigate, openAuth, onSignOut, unread, actor }) {
   return (
     <header className="topbar">
       <div className="search-wrap">
@@ -429,19 +429,7 @@ function Topbar({ role, search, setSearch, navigate, demoMode, openRoleSwitcher,
             {unread > 0 && <i />}
           </button>
         )}
-        {demoMode ? (
-          <>
-            <button className="twitch-login qa-twitch-login" onClick={openAuth}>
-              <Sparkles size={15} />
-              <span>Войти через Twitch</span>
-            </button>
-            <button className="user-pill role-pill qa-role-pill" onClick={openRoleSwitcher} aria-label={`QA-роль: ${ROLE_LABELS[role]}`}>
-              <ShieldCheck size={15} />
-              <span>QA · {ROLE_LABELS[role]}</span>
-              <ChevronDown size={13} />
-            </button>
-          </>
-        ) : role === 'guest' ? (
+        {role === 'guest' ? (
           <button className="twitch-login" onClick={openAuth}>
             <Sparkles size={15} />
             <span className="desktop-login-label">Войти через Twitch</span>
@@ -477,41 +465,6 @@ function AuthModal({ onContinue, onClose }) {
           <Sparkles size={15} /> Продолжить через Twitch
         </button>
         <small>Вы перейдёте на официальный экран Twitch, а сайт не увидит ваш пароль.</small>
-      </section>
-    </div>
-  );
-}
-
-function RoleSwitcher({ role, onSelect, onReset, onClose }) {
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="role-modal" role="dialog" aria-modal="true" aria-labelledby="role-title" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="modal-close icon-btn" onClick={onClose} aria-label="Закрыть">
-          <X size={17} />
-        </button>
-        <span className="panel-kicker">ЛОКАЛЬНАЯ ПРОВЕРКА</span>
-        <h2 id="role-title">Выберите роль</h2>
-        <p>Можно пройти все сценарии из ТЗ без реального Twitch-входа.</p>
-        <div className="role-options">
-          {Object.entries(ROLE_LABELS).map(([key, label]) => (
-            <button key={key} className={role === key ? 'selected' : ''} onClick={() => onSelect(key)}>
-              <strong>{label}</strong>
-              <span>
-                {key === 'guest'
-                  ? 'Лента и открытие роликов'
-                  : key === 'user'
-                    ? 'Отправка, реакции и профиль'
-                    : key === 'moderator'
-                      ? 'Очередь и решения'
-                      : 'Роли, категории и аудит'}
-              </span>
-              {role === key && <Check size={16} />}
-            </button>
-          ))}
-        </div>
-        <button className="reset-button" onClick={onReset}>
-          <RotateCcw size={15} /> Сбросить локальные данные
-        </button>
       </section>
     </div>
   );
@@ -1290,31 +1243,26 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
   );
 }
 
-function AccessDenied({ role, demoMode, onAccess }) {
+function AccessDenied({ role, onAccess }) {
   return (
     <main className="main-content narrow">
       <div className="success-panel access-panel">
         <ShieldCheck size={38} />
         <h2>Этот раздел недоступен роли «{ROLE_LABELS[role]}»</h2>
-        <p>{demoMode ? 'Переключите локальную QA-роль, чтобы пройти защищённый сценарий.' : 'Войдите через Twitch. Если вам выданы права модератора, раздел появится автоматически.'}</p>
-        <button className="primary-btn" onClick={onAccess}>{demoMode ? 'Выбрать QA-роль' : 'Войти через Twitch'}</button>
+        <p>Войдите через Twitch. Если вам выданы права модератора, раздел появится автоматически.</p>
+        <button className="primary-btn" onClick={onAccess}>Войти через Twitch</button>
       </div>
     </main>
   );
 }
 
 function App() {
-  const query = new URLSearchParams(window.location.search);
-  const queryRole = query.get('role');
-  const demoMode = (import.meta.env.DEV || import.meta.env.VITE_QA_MODE === '1') && (query.get('demo') === '1' || Boolean(queryRole));
-  const initialRole = demoMode ? (ROLE_LABELS[queryRole] ? queryRole : 'owner') : 'guest';
   const defaultRoute = 'feed';
   const [route, navigate] = useRoute(defaultRoute);
-  const [role, setRole] = useState(initialRole);
+  const [role, setRole] = useState('guest');
   const [sessionUser, setSessionUser] = useState(null);
-  const [state, setState, apiReady, reload] = useProjectState(role, demoMode);
+  const [state, setState, apiReady, reload] = useProjectState(role);
   const [search, setSearch] = useState('');
-  const [roleOpen, setRoleOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [toast, setToast] = useState('');
   const actor = sessionUser
@@ -1327,7 +1275,6 @@ function App() {
   const unread = state.notifications.filter((notice) => !notice.read).length;
 
   useEffect(() => {
-    if (demoMode) return;
     api.currentUser()
       .then((user) => {
         setSessionUser(user);
@@ -1337,169 +1284,100 @@ function App() {
         setSessionUser(null);
         setRole('guest');
       });
-  }, [demoMode]);
+  }, []);
 
   const notify = (message) => {
     setToast(message);
     window.clearTimeout(window.__ravshannToast);
     window.__ravshannToast = window.setTimeout(() => setToast(''), 2800);
   };
-  const selectRole = (nextRole) => {
-    setRole(nextRole);
-    const url = new URL(window.location.href);
-    url.searchParams.set('demo', '1');
-    if (nextRole === 'guest') url.searchParams.delete('role');
-    else url.searchParams.set('role', nextRole);
-    window.history.replaceState({}, '', url);
-    setRoleOpen(false);
-    if (nextRole === 'owner') navigate('owner');
-    else if (nextRole === 'moderator') navigate('moderation');
-    else navigate('feed');
-    notify(`Режим: ${ROLE_LABELS[nextRole]}`);
-  };
-  const apiRole = demoMode ? role : undefined;
   const vote = async (id, direction) => {
-    if (!can(role, 'vote')) return demoMode ? setRoleOpen(true) : setAuthOpen(true);
-    if (apiReady) {
-      try {
-        const result = await api.vote(apiRole, id, direction === 'up' ? 1 : -1);
-        setState((current) => ({
-          ...current,
-          videos: current.videos.map((video) => video.id === id
-            ? { ...video, rating: result.rating, userVote: result.user_vote }
-            : video),
-        }));
-      } catch (error) {
-        notify(error.message);
-      }
-      return;
+    if (!can(role, 'vote')) return setAuthOpen(true);
+    if (!apiReady) return notify('Сервер временно недоступен');
+    try {
+      const result = await api.vote(id, direction === 'up' ? 1 : -1);
+      setState((current) => ({
+        ...current,
+        videos: current.videos.map((video) => video.id === id
+          ? { ...video, rating: result.rating, userVote: result.user_vote }
+          : video),
+      }));
+    } catch (error) {
+      notify(error.message);
     }
-    setState((current) => ({
-      ...current,
-      videos: current.videos.map((video) => (video.id === id ? toggleVote(video, actor.id, direction) : video)),
-    }));
   };
   const decide = async (id, status, comment) => {
-    if (apiReady) {
-      const currentVideo = state.videos.find((item) => item.id === id);
-      try {
-        const updated = await api.decide(apiRole, id, status, comment, currentVideo.version);
-        setState((current) => ({
-          ...current,
-          videos: current.videos.map((item) => item.id === id ? updated : item),
-        }));
-      } catch (error) {
-        notify(error.message);
-        await reload().catch(() => {});
-      }
-      return;
-    }
-    setState((current) => {
-      const video = current.videos.find((item) => item.id === id);
-      const updated = transitionSubmission(video, status, role);
-      const title = status === 'approved' ? 'Ваше видео одобрено' : status === 'rejected' ? 'Видео отклонено' : 'Видео возвращено на рассмотрение';
-      const body =
-        status === 'approved'
-          ? `«${video.title}» появилось в общей ленте.`
-          : status === 'rejected'
-            ? comment
-              ? `«${video.title}»: ${comment}`
-              : `«${video.title}» отклонено без комментария.`
-            : `«${video.title}» снова ожидает решения.`;
-      const verb = status === 'approved' ? 'одобрил' : status === 'rejected' ? 'отклонил' : 'вернул на рассмотрение';
-      return {
+    if (!apiReady) return notify('Сервер временно недоступен');
+    const currentVideo = state.videos.find((item) => item.id === id);
+    try {
+      const updated = await api.decide(id, status, comment, currentVideo.version);
+      setState((current) => ({
         ...current,
-        videos: current.videos.map((item) => (item.id === id ? { ...updated, moderatorComment: comment || (status === 'rejected' ? 'Без комментария' : '') } : item)),
-        notifications:
-          video.authorId === 'viewer' && status !== 'pending'
-            ? [{ id: Date.now(), title, body, createdAt: new Date().toISOString(), read: false, tone: status === 'approved' ? 'green' : 'red' }, ...current.notifications]
-            : current.notifications,
-        audit: [`${actor.name} ${verb} видео #${id}`, ...current.audit],
-      };
-    });
+        videos: current.videos.map((item) => item.id === id ? updated : item),
+      }));
+    } catch (error) {
+      notify(error.message);
+      await reload().catch(() => {});
+    }
   };
   const toggleWatched = async (id) => {
     const currentVideo = state.videos.find((item) => item.id === id);
-    if (apiReady && currentVideo) {
-      try {
-        await api.setWatched(apiRole, id, !currentVideo.watched);
-        setState((current) => ({
-          ...current,
-          videos: current.videos.map((video) => video.id === id ? { ...video, watched: !video.watched } : video),
-        }));
-        notify('Публичная отметка обновлена');
-      } catch (error) {
-        notify(error.message);
-      }
-      return;
+    if (!apiReady || !currentVideo) return notify('Сервер временно недоступен');
+    try {
+      await api.setWatched(id, !currentVideo.watched);
+      setState((current) => ({
+        ...current,
+        videos: current.videos.map((video) => video.id === id ? { ...video, watched: !video.watched } : video),
+      }));
+      notify('Публичная отметка обновлена');
+    } catch (error) {
+      notify(error.message);
     }
-    setState((current) => ({
-      ...current,
-      videos: current.videos.map((video) => (video.id === id && video.status === 'approved' ? { ...video, watched: !video.watched } : video)),
-      audit: [`${actor.name} изменил отметку «Отсмотрено» у видео #${id}`, ...current.audit],
-    }));
-    notify('Публичная отметка обновлена');
   };
   const openVideo = (video) => window.open(video.youtubeUrl, '_blank', 'noopener,noreferrer');
-  const openRoleSwitcher = () => setRoleOpen(true);
   const openAuth = () => setAuthOpen(true);
   const localTwitchLogin = () => {
     window.location.assign('/api/auth/twitch/start?return_to=/');
   };
   const signOut = async () => {
-    if (!demoMode) await api.logout().catch(() => {});
+    await api.logout().catch(() => {});
     setSessionUser(null);
     setRole('guest');
     navigate('feed');
     notify('Вы вышли из аккаунта');
   };
   const deleteVideo = async (id) => {
-    if (apiReady) {
-      try {
-        await api.deleteVideo(apiRole, id);
-        setState((current) => ({
-          ...current,
-          videos: current.videos.filter((video) => video.id !== id),
-        }));
-      } catch (error) {
-        notify(error.message);
-      }
-      return;
+    if (!apiReady) return notify('Сервер временно недоступен');
+    try {
+      await api.deleteVideo(id);
+      setState((current) => ({
+        ...current,
+        videos: current.videos.filter((video) => video.id !== id),
+      }));
+    } catch (error) {
+      notify(error.message);
     }
-    setState((current) => ({
-      ...current,
-      videos: current.videos.filter((video) => video.id !== id),
-      audit: [`${actor.name} удалил видео #${id}`, ...current.audit],
-    }));
   };
   const changeVideoCategory = async (id, category) => {
     const categoryRecord = state.categoryRecords?.find((item) => item.name === category);
-    if (apiReady && categoryRecord) {
-      try {
-        await api.setVideoCategory(apiRole, id, categoryRecord.id);
-        setState((current) => ({
-          ...current,
-          videos: current.videos.map((video) => video.id === id
-            ? { ...video, category, categoryId: categoryRecord.id, version: video.version + 1 }
-            : video),
-        }));
-        notify('Категория видео обновлена');
-      } catch (error) {
-        notify(error.message);
-      }
-      return;
+    if (!apiReady || !categoryRecord) return notify('Сервер временно недоступен');
+    try {
+      await api.setVideoCategory(id, categoryRecord.id);
+      setState((current) => ({
+        ...current,
+        videos: current.videos.map((video) => video.id === id
+          ? { ...video, category, categoryId: categoryRecord.id, version: video.version + 1 }
+          : video),
+      }));
+      notify('Категория видео обновлена');
+    } catch (error) {
+      notify(error.message);
     }
-    setState((current) => ({
-      ...current,
-      videos: current.videos.map((video) => video.id === id ? { ...video, category } : video),
-      audit: [`${actor.name} изменил категорию видео #${id} на «${category}»`, ...current.audit],
-    }));
-    notify('Категория видео обновлена');
   };
   const submitVideo = async ({ url, category, comment }) => {
     const categoryRecord = state.categoryRecords?.find((item) => item.name === category);
     if (!apiReady || !categoryRecord) throw new Error('API пока недоступен — повторите через несколько секунд');
-    const video = await api.createSubmission(apiRole, {
+    const video = await api.createSubmission({
       url,
       category_id: categoryRecord.id,
       comment,
@@ -1509,7 +1387,7 @@ function App() {
   };
   const addCategory = async (name) => {
     if (!apiReady) throw new Error('API пока недоступен');
-    const categoryRecord = await api.createCategory(apiRole, name);
+    const categoryRecord = await api.createCategory(name);
     setState((current) => ({
       ...current,
       categoryRecords: [...(current.categoryRecords || []), categoryRecord],
@@ -1519,7 +1397,7 @@ function App() {
   const deleteCategory = async (name) => {
     const categoryRecord = state.categoryRecords?.find((item) => item.name === name);
     if (!apiReady || !categoryRecord) throw new Error('Категория не найдена');
-    await api.deleteCategory(apiRole, categoryRecord.id);
+    await api.deleteCategory(categoryRecord.id);
     const fallback = state.categoryRecords?.find((item) => item.is_system);
     setState((current) => ({
       ...current,
@@ -1532,7 +1410,7 @@ function App() {
   };
   const addModerator = async (login) => {
     if (!apiReady) throw new Error('API пока недоступен');
-    const user = await api.assignModerator(apiRole, login);
+    const user = await api.assignModerator(login);
     setState((current) => ({
       ...current,
       moderatorRecords: [...(current.moderatorRecords || []), user],
@@ -1542,7 +1420,7 @@ function App() {
   const deleteModerator = async (login) => {
     const user = state.moderatorRecords?.find((item) => (item.login || item.display_name) === login);
     if (!user) throw new Error('Сначала пользователь должен войти через Twitch');
-    await api.removeModerator(apiRole, user.id);
+    await api.removeModerator(user.id);
     setState((current) => ({
       ...current,
       moderatorRecords: current.moderatorRecords.filter((item) => item.id !== user.id),
@@ -1551,53 +1429,39 @@ function App() {
   };
   const updateSettings = async (settings) => {
     if (!apiReady) throw new Error('API пока недоступен');
-    await api.updateSettings(apiRole, settings);
+    await api.updateSettings(settings);
     setState((current) => ({ ...current, settings }));
   };
   const markNotification = async (id) => {
-    if (apiReady) await api.readNotification(apiRole, id);
+    if (apiReady) await api.readNotification(id);
     setState((current) => ({
       ...current,
       notifications: current.notifications.map((notice) => notice.id === id ? { ...notice, read: true } : notice),
     }));
   };
   const markAllNotifications = async () => {
-    if (apiReady) await api.readAllNotifications(apiRole);
+    if (apiReady) await api.readAllNotifications();
     setState((current) => ({
       ...current,
       notifications: current.notifications.map((notice) => ({ ...notice, read: true })),
     }));
   };
-  const accessAction = demoMode ? openRoleSwitcher : openAuth;
-
   let page;
-  if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={accessAction} />;
-  else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;
-  else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;
-  else if (route === 'notifications') page = can(role, 'view_profile') ? <NotificationView notifications={state.notifications} markAllRead={markAllNotifications} markRead={markNotification} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;
-  else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} notify={notify} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;
-  else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} demoMode={demoMode} onAccess={accessAction} />;
-  else page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={accessAction} />;
+  if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
+  else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'notifications') page = can(role, 'view_profile') ? <NotificationView notifications={state.notifications} markAllRead={markAllNotifications} markRead={markNotification} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
 
   return (
     <div className="app-shell">
       <Sidebar route={route} navigate={navigate} role={role} unread={unread} actor={actor} />
       <div className="app-body">
-        <Topbar role={role} search={search} setSearch={setSearch} navigate={navigate} demoMode={demoMode} openRoleSwitcher={openRoleSwitcher} openAuth={openAuth} onSignOut={signOut} unread={unread} actor={actor} />
+        <Topbar role={role} search={search} setSearch={setSearch} navigate={navigate} openAuth={openAuth} onSignOut={signOut} unread={unread} actor={actor} />
         {page}
       </div>
-      {demoMode && roleOpen && (
-        <RoleSwitcher
-          role={role}
-          onSelect={selectRole}
-          onReset={() => {
-            setState(makeInitialState());
-            notify('Локальные данные сброшены');
-            setRoleOpen(false);
-          }}
-          onClose={() => setRoleOpen(false)}
-        />
-      )}
       {authOpen && <AuthModal onContinue={localTwitchLogin} onClose={() => setAuthOpen(false)} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={15} /> {toast}</div>}
     </div>

@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -22,7 +21,6 @@ type Config struct {
 	TwitchRedirectURL   string
 	YouTubeAPIKey       string
 	TurnstileSecretKey  string
-	AllowDevAuth        bool
 	ShutdownGracePeriod time.Duration
 }
 
@@ -41,7 +39,6 @@ func Load() (Config, error) {
 		TwitchRedirectURL:   os.Getenv("TWITCH_REDIRECT_URL"),
 		YouTubeAPIKey:       os.Getenv("YOUTUBE_API_KEY"),
 		TurnstileSecretKey:  os.Getenv("TURNSTILE_SECRET_KEY"),
-		AllowDevAuth:        boolEnv("ALLOW_DEV_AUTH", false),
 		ShutdownGracePeriod: durationEnv("SHUTDOWN_GRACE_PERIOD", 10*time.Second),
 	}
 	if cfg.DatabaseURL == "" {
@@ -58,18 +55,6 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-func boolEnv(key string, fallback bool) bool {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
 }
 
 func durationEnv(key string, fallback time.Duration) time.Duration {

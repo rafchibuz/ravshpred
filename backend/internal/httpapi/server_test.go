@@ -18,7 +18,8 @@ import (
 
 type stubStore struct {
 	store.Store
-	categories []domain.Category
+	categories  []domain.Category
+	sessionRole domain.Role
 }
 
 func (s *stubStore) Ping(context.Context) error { return nil }
@@ -26,8 +27,18 @@ func (s *stubStore) Close()                     {}
 func (s *stubStore) ListCategories(context.Context) ([]domain.Category, error) {
 	return s.categories, nil
 }
-func (s *stubStore) EnsureDevUser(_ context.Context, role domain.Role) (domain.User, error) {
-	return domain.User{ID: "00000000-0000-0000-0000-000000000001", Display: "Dev", Role: role}, nil
+func (s *stubStore) SessionByTokenHash(context.Context, []byte) (store.Session, error) {
+	if s.sessionRole == "" {
+		return store.Session{}, store.ErrNotFound
+	}
+	return store.Session{
+		User: domain.User{
+			ID:      "00000000-0000-0000-0000-000000000001",
+			Display: "Twitch User",
+			Role:    s.sessionRole,
+		},
+		CSRFHash: hash("csrf"),
+	}, nil
 }
 func (s *stubStore) CreateCategory(_ context.Context, slug, name, _ string) (domain.Category, error) {
 	return domain.Category{ID: "category-id", Slug: slug, Name: name}, nil
@@ -45,7 +56,6 @@ func testServer(database store.Store) http.Handler {
 		FrontendURL:       "http://localhost:5173",
 		SessionCookieName: "test_session",
 		SessionTTL:        time.Hour,
-		AllowDevAuth:      true,
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return New(cfg, database, stubYouTube{}, logger).Handler()
@@ -67,10 +77,12 @@ func TestPublicHealthAndCategories(t *testing.T) {
 
 func TestOwnerEndpointRejectsModerator(t *testing.T) {
 	t.Parallel()
-	handler := testServer(&stubStore{})
+	handler := testServer(&stubStore{sessionRole: domain.RoleModerator})
 	request := httptest.NewRequest(http.MethodPost, "/api/owner/categories", strings.NewReader(`{"name":"Музыка","slug":"music"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Dev-Role", "moderator")
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+	request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
@@ -80,10 +92,12 @@ func TestOwnerEndpointRejectsModerator(t *testing.T) {
 
 func TestOwnerCanCreateCategory(t *testing.T) {
 	t.Parallel()
-	handler := testServer(&stubStore{})
+	handler := testServer(&stubStore{sessionRole: domain.RoleOwner})
 	request := httptest.NewRequest(http.MethodPost, "/api/owner/categories", strings.NewReader(`{"name":"Музыка","slug":"music"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Dev-Role", "owner")
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+	request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {

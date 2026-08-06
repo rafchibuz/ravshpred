@@ -695,33 +695,6 @@ func (s *Store) RevokeSession(ctx context.Context, tokenHash []byte) error {
 	return err
 }
 
-func (s *Store) EnsureDevUser(ctx context.Context, role domain.Role) (domain.User, error) {
-	if role == domain.RoleOwner {
-		var user domain.User
-		err := s.pool.QueryRow(ctx, `
-			INSERT INTO users(display_name,role)
-			SELECT 'Ravshann','owner' WHERE NOT EXISTS(SELECT 1 FROM users WHERE role='owner' AND deleted_at IS NULL)
-			ON CONFLICT DO NOTHING
-			RETURNING id::text,COALESCE(twitch_id,''),COALESCE(twitch_login,''),display_name,avatar_url,role::text,created_at`).
-			Scan(&user.ID, &user.TwitchID, &user.Login, &user.Display, &user.AvatarURL, &user.Role, &user.CreatedAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			err = s.pool.QueryRow(ctx, `SELECT id::text,COALESCE(twitch_id,''),COALESCE(twitch_login,''),display_name,avatar_url,role::text,created_at FROM users WHERE role='owner' AND deleted_at IS NULL`).
-				Scan(&user.ID, &user.TwitchID, &user.Login, &user.Display, &user.AvatarURL, &user.Role, &user.CreatedAt)
-		}
-		return user, err
-	}
-	twitchID := "dev-" + string(role)
-	login := "dev_" + string(role)
-	var user domain.User
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO users(twitch_id,twitch_login,display_name,role) VALUES($1,$2,$3,$4)
-		ON CONFLICT(twitch_id) DO UPDATE SET role=excluded.role,updated_at=now()
-		RETURNING id::text,twitch_id,twitch_login,display_name,avatar_url,role::text,created_at`,
-		twitchID, login, strings.Title(string(role)), role).
-		Scan(&user.ID, &user.TwitchID, &user.Login, &user.Display, &user.AvatarURL, &user.Role, &user.CreatedAt)
-	return user, err
-}
-
 func (s *Store) getVideo(ctx context.Context, id, userID string) (domain.Video, error) {
 	row := s.pool.QueryRow(ctx, videoSelect+` WHERE s.id::text=$2 AND s.deleted_at IS NULL`, userID, id)
 	var video domain.Video

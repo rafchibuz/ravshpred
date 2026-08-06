@@ -91,5 +91,4 @@ type Store interface {
 	SessionByTokenHash(context.Context, []byte) (Session, error)
 	CreateSession(context.Context, string, []byte, []byte, time.Time) error
 	RevokeSession(context.Context, []byte) error
-	EnsureDevUser(context.Context, domain.Role) (domain.User, error)
 }
