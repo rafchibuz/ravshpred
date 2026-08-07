@@ -57,6 +57,22 @@
 .thumb::after { background: linear-gradient(180deg, rgba(10,8,14,.02) 40%, rgba(10,8,14,.5)); }
 .mini-tag.status-pending { background: #7b5b16; color: #ffe49c; }
 .mini-tag.status-rejected { background: #7d263c; color: #ffc0ce; }
+.feed-filter-menu { position: relative; }
+.chip-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding-bottom: 14px; }
+.chip-bar .chip-scroll { min-width: 0; flex: 1; padding-bottom: 0; }
+.feed-filter-menu { flex: 0 0 auto; }
+.feed-filter-menu summary { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border: 1px solid #3d3746; border-radius: 18px; color: #b4adba; background: #17151b; font-size: 11px; cursor: pointer; list-style: none; }
+.feed-filter-menu summary::-webkit-details-marker { display: none; }
+.feed-filter-menu summary span { min-width: 17px; height: 17px; display: inline-grid; place-items: center; border-radius: 50%; color: #fff; background: #8139c8; font-size: 8px; }
+.feed-filter-menu[open] summary { color: #fff; border-color: #9848ff; background: #30203f; }
+.feed-filter-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; width: 220px; display: grid; gap: 5px; padding: 9px; border: 1px solid #4b4058; border-radius: 10px; background: #18151e; box-shadow: 0 18px 45px rgba(0,0,0,.45); }
+.feed-filter-panel button { min-height: 38px; display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 0 10px; border: 1px solid transparent; border-radius: 7px; color: #a9a2af; background: transparent; font-size: 10px; }
+.feed-filter-panel button:hover { color: #fff; background: #26202d; }
+.feed-filter-panel button.selected { color: #fff; border-color: #6f3b9d; background: #342044; }
+.filter-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #777; }
+.filter-status-dot.approved { background: #45d487; }
+.filter-status-dot.pending { background: #e0b94c; }
+.filter-status-dot.rejected { background: #f26283; }
 .metrics { justify-content: space-between; gap: 8px; }
 .youtube-metrics, .rating-control { display: flex; align-items: center; gap: 9px; }
 .youtube-metrics span { white-space: nowrap; }
@@ -106,6 +122,9 @@
   .mobile-login-label { display: inline; }
   .signout-button { display: none; }
   .youtube-metrics { gap: 7px; }
+  .chip-bar { align-items: stretch; flex-direction: column; }
+  .feed-filter-menu summary { width: 100%; justify-content: center; }
+  .feed-filter-panel { position: static; width: 100%; margin-top: 7px; box-shadow: none; }
   .rating-control { gap: 5px; }
   .video-management { align-items: stretch; }
   .video-management label, .video-management button { width: 100%; }

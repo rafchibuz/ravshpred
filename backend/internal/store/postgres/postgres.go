@@ -23,6 +23,11 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
+type YouTubeRefreshTarget struct {
+	SubmissionID string
+	YouTubeID    string
+}
+
 func New(ctx context.Context, databaseURL string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -78,7 +83,7 @@ func (s *Store) ListFeed(ctx context.Context, params store.FeedParams) ([]domain
 	limit := clampLimit(params.Limit)
 	cursorTime, cursorID := decodeCursor(params.Cursor)
 	query := videoSelect + `
-		WHERE s.status = 'approved' AND s.deleted_at IS NULL
+		WHERE s.status IN ('approved', 'pending', 'rejected') AND s.deleted_at IS NULL
 		  AND ($2 = '' OR c.slug = $2)
 		  AND ($3::boolean IS NULL OR EXISTS(SELECT 1 FROM streamer_marks sm WHERE sm.submission_id = s.id) = $3)
 		  AND ($4::timestamptz IS NULL OR (s.created_at, s.id::text) < ($4, $5))
@@ -100,6 +105,49 @@ func (s *Store) ListFeed(ctx context.Context, params store.FeedParams) ([]domain
 		items = items[:limit]
 	}
 	return items, next, nil
+}
+
+func (s *Store) ListYouTubeRefreshTargets(ctx context.Context, limit int) ([]YouTubeRefreshTarget, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, youtube_id
+		FROM submissions
+		WHERE deleted_at IS NULL
+		ORDER BY metadata_fetched_at ASC NULLS FIRST, created_at DESC
+		LIMIT $1`, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]YouTubeRefreshTarget, 0)
+	for rows.Next() {
+		var item YouTubeRefreshTarget
+		if err := rows.Scan(&item.SubmissionID, &item.YouTubeID); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) UpdateYouTubeMetadata(
+	ctx context.Context,
+	submissionID, title, channelTitle, thumbnailURL string,
+	durationSeconds int,
+	viewCount, likeCount int64,
+) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE submissions
+		SET title=$2,
+			channel_title=$3,
+			thumbnail_url=$4,
+			duration_seconds=$5,
+			view_count=$6,
+			youtube_like_count=$7,
+			metadata_fetched_at=now(),
+			updated_at=now()
+		WHERE id::text=$1 AND deleted_at IS NULL`,
+		submissionID, title, channelTitle, thumbnailURL, durationSeconds, viewCount, likeCount)
+	return err
 }
 
 func (s *Store) ListByStatus(ctx context.Context, status domain.SubmissionStatus, limit int) ([]domain.Video, error) {

@@ -478,8 +478,8 @@ function AuthModal({ onContinue, onClose }) {
   );
 }
 
-function Thumb({ video, large = false, publicCard = false }) {
-  const status = publicCard ? 'approved' : video.status;
+function Thumb({ video, large = false }) {
+  const status = video.status;
   const fallbackThumbnail = video.thumbnailUrl || `https://i.ytimg.com/vi/${video.youtubeId}/hqdefault.jpg`;
   return (
     <div className={`thumb ${large ? 'thumb-large' : ''}`} style={{ background: tones[video.tone] || tones.purple }}>
@@ -522,7 +522,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
   return (
     <article className={`video-card ${list ? 'video-card-list' : ''}`}>
       <button className="card-link" onClick={() => onOpen(video)} aria-label={`Открыть «${video.title}» на YouTube`}>
-        <Thumb video={video} publicCard />
+        <Thumb video={video} />
       </button>
       <div className="card-body">
         <h3>{video.title}</h3>
@@ -562,18 +562,25 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
 function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin }) {
   const [category, setCategory] = useState('Все');
   const [watchedOnly, setWatchedOnly] = useState(false);
+  const [visibleStatuses, setVisibleStatuses] = useState(['approved']);
   const [sort, setSort] = useState('Новые');
   const [list, setList] = useState(false);
   const approved = videos.filter((video) => video.status === 'approved');
+  const toggleStatus = (status) => {
+    setVisibleStatuses((current) => current.includes(status)
+      ? current.filter((item) => item !== status)
+      : [...current, status]);
+  };
   const manageVideo = (video) => {
     window.sessionStorage.setItem('ravshann-moderation-target', video.id);
     navigate('moderation');
   };
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return approved
+    return videos
       .filter(
         (video) =>
+          visibleStatuses.includes(video.status) &&
           (category === 'Все' || video.category === category) &&
           (!watchedOnly || video.watched) &&
           [video.title, video.author, video.category, video.channel].join(' ').toLowerCase().includes(query),
@@ -583,7 +590,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
         if (sort === 'Рейтингу') return voteTotals(b).score - voteTotals(a).score;
         return voteTotals(b).score - voteTotals(a).score;
       });
-  }, [approved, category, watchedOnly, sort, search]);
+  }, [videos, visibleStatuses, category, watchedOnly, sort, search]);
 
   return (
     <main className="main-content">
@@ -593,7 +600,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
             <span className="live-dot" /> ПУБЛИЧНАЯ ЛЕНТА
           </div>
           <h1>Предложка Равшана</h1>
-          <p>Одобренные модерацией видео, готовые к просмотру на стриме</p>
+          <p>Предложенные видео сообщества — по умолчанию показаны только одобренные</p>
         </div>
         <div className="heading-actions">
           <button className="ghost-btn" onClick={() => setList((value) => !value)} aria-pressed={list}>
@@ -607,15 +614,45 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
         </div>
       </section>
       <div className="chips">
-        <div className="chip-scroll">
-          {['Все', ...categories].map((item) => (
-            <button key={item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}>
-              {item}
-            </button>
-          ))}
-          <button className={watchedOnly ? 'selected watched-filter' : 'watched-filter'} onClick={() => setWatchedOnly((value) => !value)}>
-            <Eye size={13} /> Отсмотрено
-          </button>
+        <div className="chip-bar">
+          <div className="chip-scroll">
+            {['Все', ...categories].map((item) => (
+              <button key={item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+          <details className="feed-filter-menu">
+            <summary>
+              <Filter size={13} /> Показать
+              <span>{visibleStatuses.length + (watchedOnly ? 1 : 0)}</span>
+            </summary>
+            <div className="feed-filter-panel">
+              {[
+                ['approved', 'Одобренные'],
+                ['pending', 'На рассмотрении'],
+                ['rejected', 'Отказанные'],
+              ].map(([status, label]) => (
+                <button
+                  type="button"
+                  key={status}
+                  className={visibleStatuses.includes(status) ? 'selected' : ''}
+                  aria-pressed={visibleStatuses.includes(status)}
+                  onClick={() => toggleStatus(status)}
+                >
+                  <span className={`filter-status-dot ${status}`} /> {label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={watchedOnly ? 'selected' : ''}
+                aria-pressed={watchedOnly}
+                onClick={() => setWatchedOnly((value) => !value)}
+              >
+                <Eye size={13} /> Только отсмотренные
+              </button>
+            </div>
+          </details>
         </div>
       </div>
       <div className="content-grid">
