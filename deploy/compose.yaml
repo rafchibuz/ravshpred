@@ -53,6 +53,24 @@ services:
       - api
     networks: [internal]
 
+  backup:
+    build:
+      context: ..
+      dockerfile: deploy/backup.Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://ravshann:${POSTGRES_PASSWORD:-ravshann}@postgres:5432/ravshann?sslmode=disable
+      BACKUP_DIR: /backups
+      BACKUP_DAILY_RETENTION: ${BACKUP_DAILY_RETENTION:-7}
+      BACKUP_WEEKLY_RETENTION: ${BACKUP_WEEKLY_RETENTION:-4}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - ${BACKUP_HOST_DIR:-../backups}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: ["production"]
