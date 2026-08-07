@@ -76,8 +76,8 @@ CLOUDFLARE_TUNNEL_TOKEN=
 До настройки Cloudflare можно запустить основной стек без production-профиля:
 
 ```bash
-docker compose -f deploy/compose.yaml up -d --build
-docker compose -f deploy/compose.yaml ps
+docker compose --env-file .env -f deploy/compose.yaml up -d --build
+docker compose --env-file .env -f deploy/compose.yaml ps
 curl --fail http://127.0.0.1:8088/health/ready
 ```
 
@@ -96,9 +96,9 @@ Hostname задайте:
 Токен Tunnel сохраните в `CLOUDFLARE_TUNNEL_TOKEN`, затем запустите профиль:
 
 ```bash
-docker compose -f deploy/compose.yaml --profile production up -d
-docker compose -f deploy/compose.yaml --profile production ps
-docker compose -f deploy/compose.yaml logs --tail=100 cloudflared
+docker compose --env-file .env -f deploy/compose.yaml --profile production up -d
+docker compose --env-file .env -f deploy/compose.yaml --profile production ps
+docker compose --env-file .env -f deploy/compose.yaml logs --tail=100 cloudflared
 ```
 
 Cloudflared находится в одной внутренней Docker-сети с frontend, поэтому в
@@ -110,17 +110,17 @@ Cloudflared находится в одной внутренней Docker-сет�
 
 ```bash
 cd /opt/ravshpred
-docker compose -f deploy/compose.yaml logs --tail=50 backup
+docker compose --env-file .env -f deploy/compose.yaml logs --tail=50 backup
 git pull --ff-only
-docker compose -f deploy/compose.yaml --profile production up -d --build
+docker compose --env-file .env -f deploy/compose.yaml --profile production up -d --build
 curl --fail http://127.0.0.1:8088/health/ready
 ```
 
 ## Диагностика
 
 ```bash
-docker compose -f deploy/compose.yaml --profile production ps
-docker compose -f deploy/compose.yaml logs --tail=200
+docker compose --env-file .env -f deploy/compose.yaml --profile production ps
+docker compose --env-file .env -f deploy/compose.yaml logs --tail=200
 df -h /
 free -h
 ```

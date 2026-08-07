@@ -5,7 +5,7 @@
 3. Запустите:
 
 ```bash
-docker compose -f deploy/compose.yaml up --build
+docker compose --env-file .env -f deploy/compose.yaml up --build
 ```
 
 Сайт будет доступен на `http://localhost:8088`, readiness API —
@@ -24,14 +24,14 @@ docker compose -f deploy/compose.yaml up --build
 Посмотреть состояние и созданные файлы:
 
 ```bash
-docker compose -f deploy/compose.yaml logs --tail=50 backup
-docker compose -f deploy/compose.yaml exec backup ls -lh /backups/daily
+docker compose --env-file .env -f deploy/compose.yaml logs --tail=50 backup
+docker compose --env-file .env -f deploy/compose.yaml exec backup ls -lh /backups/daily
 ```
 
 Проверить выбранную копию без изменения базы:
 
 ```bash
-docker compose -f deploy/compose.yaml exec backup \
+docker compose --env-file .env -f deploy/compose.yaml exec backup \
   verify-backup.sh /backups/daily/ravshann-YYYYMMDDTHHMMSSZ.dump
 ```
 
@@ -44,7 +44,7 @@ docker compose -f deploy/compose.yaml exec backup \
 Команда очищает объекты именно в указанной целевой базе:
 
 ```bash
-docker compose -f deploy/compose.yaml exec \
+docker compose --env-file .env -f deploy/compose.yaml exec \
   -e TARGET_DATABASE_URL=postgres://user:password@host:5432/test_restore \
   -e RESTORE_CONFIRM=RESTORE \
   backup restore-backup.sh /backups/daily/ravshann-YYYYMMDDTHHMMSSZ.dump

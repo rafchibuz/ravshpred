@@ -9,7 +9,7 @@
 Нужен Docker Desktop:
 
 ```powershell
-docker compose -f deploy\compose.yaml up -d --build
+docker compose --env-file .env -f deploy\compose.yaml up -d --build
 ```
 
 После запуска:
@@ -21,8 +21,8 @@ docker compose -f deploy\compose.yaml up -d --build
 Состояние контейнеров:
 
 ```powershell
-docker compose -f deploy\compose.yaml ps
-docker compose -f deploy\compose.yaml logs --tail=100
+docker compose --env-file .env -f deploy\compose.yaml ps
+docker compose --env-file .env -f deploy\compose.yaml logs --tail=100
 ```
 
 ## Конфигурация
