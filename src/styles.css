@@ -143,3 +143,69 @@
 @media (pointer: coarse) {
   button, a.outline-btn, .chip-scroll button, .queue-tabs button { min-height: 44px; }
 }
+
+.site-footer { max-width: 1560px; margin: 0 auto; padding: 20px 29px 30px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #716b78; border-top: 1px solid #242129; font-size: 9px; }
+.site-footer nav { display: flex; flex-wrap: wrap; gap: 14px; }
+.site-footer button { padding: 3px 0; color: #8f8797; background: transparent; font-size: 9px; }
+.site-footer button:hover { color: #c9a5ed; }
+
+.news-page { max-width: 1060px; }
+.news-editor { margin-bottom: 18px; }
+.news-editor .panel-head svg { color: #a853fb; }
+.news-editor label { display: grid; gap: 7px; margin-top: 15px; color: #aca5b2; font-size: 10px; }
+.news-editor textarea { min-height: 150px; }
+.news-editor-actions { margin-top: 10px; display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.news-editor-actions span { color: #766f7d; font-size: 9px; }
+.news-list { display: grid; gap: 14px; }
+.news-post { padding: 22px; }
+.news-post > header { display: flex; align-items: center; gap: 10px; }
+.news-post > header > div { min-width: 0; display: grid; gap: 3px; }
+.news-post > header strong { font-size: 11px; }
+.news-post > header span { color: #7e7785; font-size: 9px; }
+.news-post > header > button { margin-left: auto; }
+.news-post > h2 { margin: 18px 0 9px; font-size: clamp(20px, 3vw, 28px); letter-spacing: -.035em; }
+.news-body { color: #bcb5c2; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
+.comments-block { margin-top: 22px; padding-top: 16px; border-top: 1px solid #302c34; }
+.comments-title { display: flex; align-items: center; gap: 7px; color: #aaa3b0; font-size: 10px; }
+.comments-title svg { color: #a34df6; }
+.comments-title span { min-width: 18px; height: 18px; display: inline-grid; place-items: center; border-radius: 9px; background: #302139; color: #d9b6fb; font-size: 8px; }
+.comment-list { margin-top: 8px; }
+.comment-row { display: grid; grid-template-columns: 26px minmax(0,1fr) 28px; gap: 9px; padding: 11px 0; border-bottom: 1px solid #29262e; }
+.comment-row > div { min-width: 0; }
+.comment-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.comment-meta strong { font-size: 10px; }
+.comment-meta span { color: #77717d; font-size: 8px; }
+.comment-row p { margin: 5px 0 0; color: #aaa3af; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 10px; line-height: 1.5; }
+.comment-delete { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: #7e727d; background: transparent; }
+.comment-delete:hover { color: #ff7693; background: #3b1d29; }
+.no-comments { margin: 12px 0; color: #716b78; font-size: 9px; }
+.comment-form { margin-top: 13px; display: grid; grid-template-columns: 26px minmax(0,1fr) 40px; gap: 9px; align-items: start; }
+.comment-form textarea { min-height: 58px; resize: vertical; padding: 10px 11px; font-size: 11px; }
+.comment-form .primary-btn { width: 40px; min-height: 40px; padding: 0; }
+.news-login-prompt { width: 100%; min-height: 40px; margin-top: 13px; border: 1px dashed #59406d; border-radius: 8px; color: #b787df; background: #221829; font-size: 10px; }
+.news-empty { min-height: 330px; }
+
+.legal-page { max-width: 960px; }
+.legal-hero { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 22px; padding: 26px; border: 1px solid #3d3348; border-radius: 12px; background: radial-gradient(circle at 95% 0, rgba(150,70,240,.15), transparent 40%), #18161d; }
+.legal-hero > svg { flex: 0 0 auto; color: #a653f4; }
+.legal-hero h1 { margin: 7px 0 7px; font-size: clamp(27px, 4vw, 38px); letter-spacing: -.045em; }
+.legal-hero p { max-width: 680px; margin: 0 0 11px; color: #aaa3af; font-size: 12px; line-height: 1.55; }
+.legal-hero small { color: #756f7b; font-size: 9px; }
+.legal-sections { display: grid; gap: 12px; }
+.legal-sections .panel { padding: 22px; }
+.legal-sections h2 { margin: 0 0 13px; font-size: 16px; }
+.legal-sections ul { display: grid; gap: 9px; margin: 0; padding-left: 18px; }
+.legal-sections li { padding-left: 4px; color: #aaa4af; font-size: 11px; line-height: 1.55; }
+
+@media (max-width: 640px) {
+  .site-footer { padding: 18px 12px calc(82px + env(safe-area-inset-bottom)); align-items: flex-start; flex-direction: column; }
+  .site-footer nav { gap: 10px 14px; }
+  .news-post { padding: 16px 13px; }
+  .news-editor { padding: 15px; }
+  .news-editor input, .news-editor textarea, .comment-form textarea { font-size: 16px; }
+  .comment-form { grid-template-columns: minmax(0,1fr) 44px; }
+  .comment-form > .avatar { display: none; }
+  .comment-form .primary-btn { width: 44px; min-height: 44px; }
+  .legal-hero { padding: 20px 16px; }
+  .legal-sections .panel { padding: 18px 15px; }
+}

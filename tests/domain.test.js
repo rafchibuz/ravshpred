@@ -41,6 +41,8 @@ test('RBAC отделяет гостя, модератора и основате
   assert.equal(can('moderator', 'moderate'), true);
   assert.equal(can('moderator', 'manage'), false);
   assert.equal(can('owner', 'manage'), true);
+  assert.equal(can('guest', 'comment_news'), false);
+  assert.equal(can('user', 'comment_news'), true);
 });
 
 test('переход модерации сбрасывает отсмотрено вне approved', () => {

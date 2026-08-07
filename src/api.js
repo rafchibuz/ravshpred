@@ -86,8 +86,42 @@ export function normalizeVideo(video) {
   };
 }
 
+function normalizeUser(user) {
+  return {
+    id: user?.id,
+    name: user?.display_name || user?.login || 'Пользователь Twitch',
+    avatarUrl: user?.avatar_url || '',
+    role: user?.role || 'user',
+  };
+}
+
+function normalizeNewsComment(comment) {
+  return {
+    id: comment.id,
+    postId: comment.post_id,
+    body: comment.body,
+    createdAt: comment.created_at,
+    author: normalizeUser(comment.author),
+  };
+}
+
+function normalizeNewsPost(post) {
+  return {
+    id: post.id,
+    title: post.title,
+    body: post.body,
+    createdAt: post.created_at,
+    updatedAt: post.updated_at,
+    author: normalizeUser(post.author),
+    comments: (post.comments || []).map(normalizeNewsComment),
+  };
+}
+
 export async function loadWorkspace(role) {
-  const categoriesResponse = await request('/categories');
+  const [categoriesResponse, newsResponse] = await Promise.all([
+    request('/categories'),
+    request('/news?limit=50'),
+  ]);
   const categoryRecords = categoriesResponse.data || [];
   const requests = [request('/videos?limit=100')];
 
@@ -110,6 +144,7 @@ export async function loadWorkspace(role) {
     categoryRecords,
     categories: categoryRecords.map((item) => item.name),
     videos: [...videosById.values()],
+    news: (newsResponse.data || []).map(normalizeNewsPost),
   };
   if (['user', 'moderator', 'owner'].includes(role)) {
     const notifications = await request('/notifications?limit=100');
@@ -219,6 +254,28 @@ export function updateSettings(settings) {
       allow_self_vote: Boolean(settings.allowSelfVote),
     },
   });
+}
+
+export function createNewsPost(title, body) {
+  return request('/owner/news', {
+    method: 'POST',
+    body: { title, body },
+  }).then((payload) => normalizeNewsPost(payload.data));
+}
+
+export function deleteNewsPost(postId) {
+  return request(`/owner/news/${postId}`, { method: 'DELETE' });
+}
+
+export function createNewsComment(postId, body) {
+  return request(`/news/${postId}/comments`, {
+    method: 'POST',
+    body: { body },
+  }).then((payload) => normalizeNewsComment(payload.data));
+}
+
+export function deleteNewsComment(commentId) {
+  return request(`/news/comments/${commentId}`, { method: 'DELETE' });
 }
 
 export async function currentUser() {

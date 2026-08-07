@@ -74,6 +74,24 @@ type Notification struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type NewsComment struct {
+	ID        string    `json:"id"`
+	PostID    string    `json:"post_id"`
+	Author    User      `json:"author"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type NewsPost struct {
+	ID        string        `json:"id"`
+	Author    User          `json:"author"`
+	Title     string        `json:"title"`
+	Body      string        `json:"body"`
+	Comments  []NewsComment `json:"comments"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
+}
+
 type AuditEntry struct {
 	ID         int64           `json:"id"`
 	Actor      *User           `json:"actor,omitempty"`
@@ -95,7 +113,7 @@ func Can(role Role, action string) bool {
 	switch action {
 	case "view_feed", "open_video":
 		return true
-	case "submit", "vote", "view_profile":
+	case "submit", "vote", "view_profile", "comment_news":
 		return role == RoleUser || role == RoleModerator || role == RoleOwner
 	case "moderate", "mark_watched":
 		return role == RoleModerator || role == RoleOwner

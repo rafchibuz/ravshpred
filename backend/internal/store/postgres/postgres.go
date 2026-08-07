@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,9 @@ import (
 	"github.com/ravshann/predlozhka/backend/internal/domain"
 	"github.com/ravshann/predlozhka/backend/internal/store"
 )
+
+//go:embed migrations/000002_news.sql
+var newsSchema string
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -37,6 +41,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if err := result.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, err
+	}
+	if _, err := pool.Exec(ctx, newsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply news schema: %w", err)
 	}
 	return result, nil
 }
@@ -529,6 +537,156 @@ func (s *Store) ListNotifications(ctx context.Context, userID string, limit int)
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) ListNews(ctx context.Context, limit int) ([]domain.NewsPost, error) {
+	limit = clampLimit(limit)
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.id::text,p.title,p.body,p.created_at,p.updated_at,
+			u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),
+			u.display_name,u.avatar_url,u.role::text,u.created_at
+		FROM news_posts p
+		JOIN users u ON u.id=p.author_id
+		ORDER BY p.created_at DESC,p.id DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	posts := make([]domain.NewsPost, 0)
+	index := make(map[string]int)
+	for rows.Next() {
+		var post domain.NewsPost
+		if err := rows.Scan(
+			&post.ID, &post.Title, &post.Body, &post.CreatedAt, &post.UpdatedAt,
+			&post.Author.ID, &post.Author.TwitchID, &post.Author.Login,
+			&post.Author.Display, &post.Author.AvatarURL, &post.Author.Role, &post.Author.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		post.Comments = []domain.NewsComment{}
+		index[post.ID] = len(posts)
+		posts = append(posts, post)
+	}
+	if err := rows.Err(); err != nil || len(posts) == 0 {
+		return posts, err
+	}
+
+	commentRows, err := s.pool.Query(ctx, `
+		SELECT c.id::text,c.post_id::text,c.body,c.created_at,
+			u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),
+			u.display_name,u.avatar_url,u.role::text,u.created_at
+		FROM news_comments c
+		JOIN users u ON u.id=c.author_id
+		WHERE c.post_id IN (
+			SELECT id FROM news_posts ORDER BY created_at DESC,id DESC LIMIT $1
+		)
+		ORDER BY c.created_at ASC,c.id ASC`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer commentRows.Close()
+	for commentRows.Next() {
+		var comment domain.NewsComment
+		if err := commentRows.Scan(
+			&comment.ID, &comment.PostID, &comment.Body, &comment.CreatedAt,
+			&comment.Author.ID, &comment.Author.TwitchID, &comment.Author.Login,
+			&comment.Author.Display, &comment.Author.AvatarURL, &comment.Author.Role, &comment.Author.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if position, ok := index[comment.PostID]; ok {
+			posts[position].Comments = append(posts[position].Comments, comment)
+		}
+	}
+	return posts, commentRows.Err()
+}
+
+func (s *Store) CreateNewsPost(ctx context.Context, authorID, title, body string) (domain.NewsPost, error) {
+	var postID string
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO news_posts(author_id,title,body)
+		VALUES($1,$2,$3)
+		RETURNING id::text`, authorID, title, body).Scan(&postID)
+	if err != nil {
+		return domain.NewsPost{}, err
+	}
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO audit_log(actor_id,action,target_type,target_id)
+		VALUES($1,'create','news_post',$2)`, authorID, postID); err != nil {
+		return domain.NewsPost{}, err
+	}
+	return s.newsPostByID(ctx, postID)
+}
+
+func (s *Store) newsPostByID(ctx context.Context, postID string) (domain.NewsPost, error) {
+	var post domain.NewsPost
+	err := s.pool.QueryRow(ctx, `
+		SELECT p.id::text,p.title,p.body,p.created_at,p.updated_at,
+			u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),
+			u.display_name,u.avatar_url,u.role::text,u.created_at
+		FROM news_posts p
+		JOIN users u ON u.id=p.author_id
+		WHERE p.id::text=$1`, postID).Scan(
+		&post.ID, &post.Title, &post.Body, &post.CreatedAt, &post.UpdatedAt,
+		&post.Author.ID, &post.Author.TwitchID, &post.Author.Login,
+		&post.Author.Display, &post.Author.AvatarURL, &post.Author.Role, &post.Author.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.NewsPost{}, store.ErrNotFound
+	}
+	post.Comments = []domain.NewsComment{}
+	return post, err
+}
+
+func (s *Store) DeleteNewsPost(ctx context.Context, postID, actorID string) error {
+	command, err := s.pool.Exec(ctx, `DELETE FROM news_posts WHERE id::text=$1`, postID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO audit_log(actor_id,action,target_type,target_id)
+		VALUES($1,'delete','news_post',$2)`, actorID, postID)
+	return err
+}
+
+func (s *Store) CreateNewsComment(ctx context.Context, postID, authorID, body string) (domain.NewsComment, error) {
+	var comment domain.NewsComment
+	err := s.pool.QueryRow(ctx, `
+		WITH inserted AS (
+			INSERT INTO news_comments(post_id,author_id,body)
+			SELECT p.id,$2,$3 FROM news_posts p WHERE p.id::text=$1
+			RETURNING id,post_id,author_id,body,created_at
+		)
+		SELECT i.id::text,i.post_id::text,i.body,i.created_at,
+			u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),
+			u.display_name,u.avatar_url,u.role::text,u.created_at
+		FROM inserted i
+		JOIN users u ON u.id=i.author_id`, postID, authorID, body).Scan(
+		&comment.ID, &comment.PostID, &comment.Body, &comment.CreatedAt,
+		&comment.Author.ID, &comment.Author.TwitchID, &comment.Author.Login,
+		&comment.Author.Display, &comment.Author.AvatarURL, &comment.Author.Role, &comment.Author.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.NewsComment{}, store.ErrNotFound
+	}
+	return comment, err
+}
+
+func (s *Store) DeleteNewsComment(ctx context.Context, commentID, actorID string, canManage bool) error {
+	command, err := s.pool.Exec(ctx, `
+		DELETE FROM news_comments
+		WHERE id::text=$1 AND (author_id::text=$2 OR $3)`, commentID, actorID, canManage)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) MarkNotificationRead(ctx context.Context, userID, notificationID string) error {

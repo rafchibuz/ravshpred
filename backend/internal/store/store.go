@@ -87,6 +87,11 @@ type Store interface {
 	PromoteTwitchOwner(context.Context, string) (domain.User, error)
 	CreateOAuthState(context.Context, []byte, []byte, string, time.Time) error
 	ConsumeOAuthState(context.Context, []byte) (string, error)
+	ListNews(context.Context, int) ([]domain.NewsPost, error)
+	CreateNewsPost(context.Context, string, string, string) (domain.NewsPost, error)
+	DeleteNewsPost(context.Context, string, string) error
+	CreateNewsComment(context.Context, string, string, string) (domain.NewsComment, error)
+	DeleteNewsComment(context.Context, string, string, bool) error
 
 	SessionByTokenHash(context.Context, []byte) (Session, error)
 	CreateSession(context.Context, string, []byte, []byte, time.Time) error

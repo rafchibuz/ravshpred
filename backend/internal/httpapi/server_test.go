@@ -19,6 +19,7 @@ import (
 type stubStore struct {
 	store.Store
 	categories  []domain.Category
+	news        []domain.NewsPost
 	sessionRole domain.Role
 }
 
@@ -43,6 +44,12 @@ func (s *stubStore) SessionByTokenHash(context.Context, []byte) (store.Session, 
 func (s *stubStore) CreateCategory(_ context.Context, slug, name, _ string) (domain.Category, error) {
 	return domain.Category{ID: "category-id", Slug: slug, Name: name}, nil
 }
+func (s *stubStore) ListNews(context.Context, int) ([]domain.NewsPost, error) {
+	return s.news, nil
+}
+func (s *stubStore) CreateNewsPost(_ context.Context, authorID, title, body string) (domain.NewsPost, error) {
+	return domain.NewsPost{ID: "news-id", Title: title, Body: body, Author: domain.User{ID: authorID}}, nil
+}
 
 type stubYouTube struct{}
 
@@ -65,12 +72,36 @@ func TestPublicHealthAndCategories(t *testing.T) {
 	t.Parallel()
 	handler := testServer(&stubStore{categories: []domain.Category{{ID: "1", Slug: "funny", Name: "Смешное"}}})
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/categories"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/categories", "/api/news"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusOK {
 			t.Fatalf("%s returned %d: %s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestOnlyOwnerCanCreateNewsPost(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		role domain.Role
+		want int
+	}{
+		{role: domain.RoleUser, want: http.StatusForbidden},
+		{role: domain.RoleModerator, want: http.StatusForbidden},
+		{role: domain.RoleOwner, want: http.StatusCreated},
+	} {
+		handler := testServer(&stubStore{sessionRole: testCase.role})
+		request := httptest.NewRequest(http.MethodPost, "/api/owner/news", strings.NewReader(`{"title":"Обновление","body":"Новая версия сайта"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-CSRF-Token", "csrf")
+		request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+		request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != testCase.want {
+			t.Fatalf("role %s: got %d, want %d: %s", testCase.role, response.Code, testCase.want, response.Body.String())
 		}
 	}
 }

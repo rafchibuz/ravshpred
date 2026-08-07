@@ -55,6 +55,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health/ready", s.ready)
 	mux.HandleFunc("GET /api/categories", s.categories)
 	mux.HandleFunc("GET /api/videos", s.feed)
+	mux.HandleFunc("GET /api/news", s.news)
+	mux.HandleFunc("POST /api/news/{id}/comments", s.createNewsComment)
+	mux.HandleFunc("DELETE /api/news/comments/{id}", s.deleteNewsComment)
 	mux.HandleFunc("GET /api/me", s.me)
 	mux.HandleFunc("GET /api/auth/twitch/start", s.twitchStart)
 	mux.HandleFunc("GET /api/auth/twitch/callback", s.twitchCallback)
@@ -78,6 +81,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/owner/audit", s.audit)
 	mux.HandleFunc("GET /api/owner/settings", s.settings)
 	mux.HandleFunc("PUT /api/owner/settings", s.updateSettings)
+	mux.HandleFunc("POST /api/owner/news", s.createNewsPost)
+	mux.HandleFunc("DELETE /api/owner/news/{id}", s.deleteNewsPost)
 	return s.middleware(mux)
 }
 
@@ -137,6 +142,95 @@ func (s *Server) categories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) news(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListNews(r.Context(), intQuery(r, "limit", 50))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) createNewsPost(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Title = strings.TrimSpace(input.Title)
+	input.Body = strings.TrimSpace(input.Body)
+	if len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 160 ||
+		len([]rune(input.Body)) < 1 || len([]rune(input.Body)) > 5000 {
+		writeError(w, http.StatusBadRequest, "invalid_news_post", "Заголовок или текст новости вне допустимого размера")
+		return
+	}
+	post, err := s.store.CreateNewsPost(r.Context(), actor.User.ID, input.Title, input.Body)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": post})
+}
+
+func (s *Server) deleteNewsPost(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	if err := s.store.DeleteNewsPost(r.Context(), r.PathValue("id"), actor.User.ID); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) createNewsComment(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "comment_news")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Body string `json:"body"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Body = strings.TrimSpace(input.Body)
+	if len([]rune(input.Body)) < 1 || len([]rune(input.Body)) > 1000 {
+		writeError(w, http.StatusBadRequest, "invalid_news_comment", "Комментарий должен содержать от 1 до 1000 символов")
+		return
+	}
+	comment, err := s.store.CreateNewsComment(r.Context(), r.PathValue("id"), actor.User.ID, input.Body)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": comment})
+}
+
+func (s *Server) deleteNewsComment(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "comment_news")
+	if actor == nil {
+		return
+	}
+	if err := s.store.DeleteNewsComment(
+		r.Context(),
+		r.PathValue("id"),
+		actor.User.ID,
+		actor.User.Role == domain.RoleOwner,
+	); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) feed(w http.ResponseWriter, r *http.Request) {

@@ -8,20 +8,25 @@ import {
   ExternalLink,
   Eye,
   Filter,
+  FileText,
   Home,
   LayoutGrid,
   Link2,
   List,
   Menu,
+  MessageCircle,
+  Newspaper,
   Play,
   Plus,
   Search,
+  Send,
   Settings,
   ShieldCheck,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
   Trophy,
+  Trash2,
   UserRound,
   X,
 } from 'lucide-react';
@@ -294,6 +299,7 @@ function emptyServerState() {
     moderatorRecords: [],
     videos: [],
     notifications: [],
+    news: [],
     audit: [],
     auditRecords: [],
     settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false },
@@ -369,6 +375,7 @@ function Logo() {
 function Sidebar({ route, navigate, role, unread, actor }) {
   const nav = [
     { key: 'feed', label: 'Главная', icon: Home },
+    { key: 'news', label: 'Новости', icon: Newspaper },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
     ...(can(role, 'view_profile')
       ? [
@@ -410,6 +417,19 @@ function Sidebar({ route, navigate, role, unread, actor }) {
         </div>
       </div>
     </aside>
+  );
+}
+
+function SiteFooter({ navigate }) {
+  return (
+    <footer className="site-footer">
+      <span>© {new Date().getFullYear()} RAVSHANN Предложка</span>
+      <nav aria-label="Служебные страницы">
+        <button onClick={() => navigate('rules')}>Правила</button>
+        <button onClick={() => navigate('privacy')}>Конфиденциальность</button>
+        <button onClick={() => navigate('terms')}>Условия использования</button>
+      </nav>
+    </footer>
   );
 }
 
@@ -699,6 +719,246 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
               ))}
           </div>
         </aside>
+      </div>
+    </main>
+  );
+}
+
+function NewsView({
+  posts,
+  role,
+  actor,
+  onLogin,
+  onCreatePost,
+  onDeletePost,
+  onCreateComment,
+  onDeleteComment,
+  notify,
+}) {
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [posting, setPosting] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState('');
+
+  const publish = async (event) => {
+    event.preventDefault();
+    if (!title.trim() || !body.trim()) return;
+    setPosting(true);
+    try {
+      await onCreatePost(title.trim(), body.trim());
+      setTitle('');
+      setBody('');
+      notify('Новость опубликована');
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const comment = async (event, postId) => {
+    event.preventDefault();
+    const value = (commentDrafts[postId] || '').trim();
+    if (!value) return;
+    try {
+      await onCreateComment(postId, value);
+      setCommentDrafts((current) => ({ ...current, [postId]: '' }));
+    } catch (error) {
+      notify(error.message);
+    }
+  };
+
+  return (
+    <main className="main-content news-page">
+      <section className="page-heading">
+        <div>
+          <div className="eyebrow"><span className="live-dot" /> НОВОСТИ ПРОЕКТА</div>
+          <h1>Что нового в предложке</h1>
+          <p>Обновления, планы и важные объявления от основателя проекта</p>
+        </div>
+      </section>
+
+      {role === 'owner' && (
+        <form className="panel news-editor" onSubmit={publish}>
+          <div className="panel-head">
+            <div>
+              <span className="panel-kicker">НОВАЯ ПУБЛИКАЦИЯ</span>
+              <h2>Написать новость</h2>
+            </div>
+            <Newspaper size={20} />
+          </div>
+          <label>
+            Заголовок
+            <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={160} placeholder="Коротко о главном" required />
+          </label>
+          <label>
+            Текст
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={5000} placeholder="Расскажите пользователям об обновлении…" required />
+          </label>
+          <div className="news-editor-actions">
+            <span>{body.length}/5000</span>
+            <button className="primary-btn" disabled={posting || !title.trim() || !body.trim()}>
+              <Send size={14} /> {posting ? 'Публикуем…' : 'Опубликовать'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <section className="news-list">
+        {posts.map((post) => (
+          <article className="panel news-post" key={post.id}>
+            <header>
+              <Avatar src={post.author.avatarUrl} name={post.author.name} />
+              <div>
+                <strong>{post.author.name}</strong>
+                <span>Основатель · {new Date(post.createdAt).toLocaleString('ru-RU')}</span>
+              </div>
+              {role === 'owner' && (
+                <button
+                  className={deleteArmed === post.id ? 'danger-confirm' : 'icon-btn'}
+                  aria-label={deleteArmed === post.id ? 'Подтвердить удаление новости' : 'Удалить новость'}
+                  onClick={async () => {
+                    if (deleteArmed !== post.id) return setDeleteArmed(post.id);
+                    try {
+                      await onDeletePost(post.id);
+                      notify('Новость удалена');
+                    } catch (error) {
+                      notify(error.message);
+                    }
+                    setDeleteArmed('');
+                  }}
+                >
+                  {deleteArmed === post.id ? 'Удалить' : <Trash2 size={14} />}
+                </button>
+              )}
+            </header>
+            <h2>{post.title}</h2>
+            <div className="news-body">{post.body}</div>
+
+            <section className="comments-block" aria-label={`Комментарии к новости «${post.title}»`}>
+              <div className="comments-title">
+                <MessageCircle size={15} />
+                <strong>Комментарии</strong>
+                <span>{post.comments.length}</span>
+              </div>
+              <div className="comment-list">
+                {post.comments.map((item) => (
+                  <div className="comment-row" key={item.id}>
+                    <Avatar small src={item.author.avatarUrl} name={item.author.name} />
+                    <div>
+                      <div className="comment-meta">
+                        <strong>{item.author.name}</strong>
+                        <span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span>
+                      </div>
+                      <p>{item.body}</p>
+                    </div>
+                    {(role === 'owner' || actor?.id === item.author.id) && (
+                      <button
+                        className="comment-delete"
+                        aria-label="Удалить комментарий"
+                        onClick={() => onDeleteComment(item.id).catch((error) => notify(error.message))}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {!post.comments.length && <p className="no-comments">Комментариев пока нет. Можно быть первым.</p>}
+              </div>
+              {can(role, 'comment_news') ? (
+                <form className="comment-form" onSubmit={(event) => comment(event, post.id)}>
+                  <Avatar small src={actor?.avatarUrl} name={actor?.name} />
+                  <textarea
+                    value={commentDrafts[post.id] || ''}
+                    onChange={(event) => setCommentDrafts((current) => ({ ...current, [post.id]: event.target.value }))}
+                    maxLength={1000}
+                    rows={2}
+                    placeholder="Написать комментарий…"
+                    aria-label="Комментарий"
+                  />
+                  <button className="primary-btn" disabled={!(commentDrafts[post.id] || '').trim()} aria-label="Отправить комментарий">
+                    <Send size={14} />
+                  </button>
+                </form>
+              ) : (
+                <button className="news-login-prompt" onClick={onLogin}>
+                  Войдите через Twitch, чтобы оставить комментарий
+                </button>
+              )}
+            </section>
+          </article>
+        ))}
+        {!posts.length && (
+          <div className="empty-state news-empty">
+            <Newspaper size={30} />
+            <h3>Новостей пока нет</h3>
+            <p>Первое объявление появится здесь.</p>
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+const LEGAL_PAGES = {
+  rules: {
+    kicker: 'ПРАВИЛА СООБЩЕСТВА',
+    title: 'Правила предложки',
+    intro: 'Эти правила помогают модераторам безопасно отбирать видео для просмотра на стриме.',
+    sections: [
+      ['Что можно отправлять', ['Публичные YouTube-видео, доступные по обычной ссылке.', 'Материалы, которые подходят для совместного просмотра и обсуждения на стриме.', 'Один ролик отправляется один раз и размещается в подходящей категории.']],
+      ['Что запрещено', ['Незаконный контент, угрозы, травля, шокирующие материалы и разглашение личных данных.', 'Реклама, скам, вредоносные ссылки, накрутка голосов и обход ограничений сайта.', 'Материалы, нарушающие права третьих лиц или правила YouTube.']],
+      ['Модерация', ['Модератор может одобрить, отклонить, скрыть или удалить предложение.', 'Комментарий при отказе может отсутствовать; решение отображается в профиле автора.', 'Повторные нарушения могут привести к ограничению доступа к функциям проекта.']],
+      ['Комментарии', ['Обсуждайте тему новости без оскорблений, спама и рекламы.', 'Автор может удалить свой комментарий, а основатель — любой комментарий или новость.']],
+    ],
+  },
+  privacy: {
+    kicker: 'ДАННЫЕ И БЕЗОПАСНОСТЬ',
+    title: 'Политика конфиденциальности',
+    intro: 'Мы собираем только данные, необходимые для авторизации и работы предложки.',
+    sections: [
+      ['Какие данные хранятся', ['Twitch User ID, логин, отображаемый ник и публичный аватар.', 'Отправленные ссылки, голоса, комментарии, уведомления и действия модерации.', 'Серверные сессии в защищённых cookie и технические журналы без паролей Twitch.']],
+      ['Для чего используются данные', ['Для входа, назначения ролей, отображения профиля и защиты от злоупотреблений.', 'Для работы предложений, голосования, комментариев, уведомлений и аудита решений.', 'Данные не продаются и не используются для рекламного профилирования.']],
+      ['Хранение и защита', ['Пароль Twitch и пользовательский OAuth-токен не сохраняются.', 'Доступ к административным данным ограничен ролями; изменяющие запросы защищены CSRF-проверкой.', 'Резервные копии базы создаются автоматически и хранятся с ограниченной ротацией.']],
+      ['Ваши возможности', ['Можно выйти из аккаунта и прекратить использование сайта в любой момент.', 'Запрос на удаление профиля и связанных персональных данных направляется администрации проекта.', 'Часть записей аудита может сохраняться в обезличенном виде для безопасности проекта.']],
+    ],
+  },
+  terms: {
+    kicker: 'УСЛОВИЯ СЕРВИСА',
+    title: 'Условия использования',
+    intro: 'Используя сайт, вы соглашаетесь соблюдать правила проекта и требования Twitch и YouTube.',
+    sections: [
+      ['Назначение сервиса', ['Сайт хранит ссылки и метаданные, но не загружает и не раздаёт видеофайлы.', 'Видео открываются непосредственно на YouTube и подчиняются правилам этой платформы.']],
+      ['Ответственность пользователя', ['Отправляйте только материалы, которыми вы вправе делиться.', 'Не пытайтесь нарушить работу сайта, получить чужой доступ или обойти лимиты.', 'Пользователь отвечает за содержание своих предложений и комментариев.']],
+      ['Работа сервиса', ['Администрация может изменять категории, правила и функциональность проекта.', 'Доступность сайта не гарантируется непрерывно: возможны обновления и технические перерывы.', 'Нарушающий правила контент и связанные записи могут быть удалены без предварительного уведомления.']],
+      ['Изменение условий', ['Актуальная версия публикуется на этой странице.', 'Продолжение использования сайта после обновления означает принятие новой редакции.']],
+    ],
+  },
+};
+
+function LegalView({ kind }) {
+  const page = LEGAL_PAGES[kind];
+  return (
+    <main className="main-content legal-page">
+      <section className="legal-hero">
+        <FileText size={30} />
+        <div>
+          <span className="panel-kicker">{page.kicker}</span>
+          <h1>{page.title}</h1>
+          <p>{page.intro}</p>
+          <small>Обновлено 7 августа 2026 года</small>
+        </div>
+      </section>
+      <div className="legal-sections">
+        {page.sections.map(([title, items]) => (
+          <section className="panel" key={title}>
+            <h2>{title}</h2>
+            <ul>
+              {items.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </section>
+        ))}
       </div>
     </main>
   );
@@ -1495,13 +1755,46 @@ function App() {
       notifications: current.notifications.map((notice) => ({ ...notice, read: true })),
     }));
   };
+  const createNewsPost = async (title, body) => {
+    if (!apiReady) throw new Error('Сервер временно недоступен');
+    const post = await api.createNewsPost(title, body);
+    setState((current) => ({ ...current, news: [post, ...current.news] }));
+  };
+  const deleteNewsPost = async (postId) => {
+    if (!apiReady) throw new Error('Сервер временно недоступен');
+    await api.deleteNewsPost(postId);
+    setState((current) => ({ ...current, news: current.news.filter((post) => post.id !== postId) }));
+  };
+  const createNewsComment = async (postId, body) => {
+    if (!apiReady) throw new Error('Сервер временно недоступен');
+    const comment = await api.createNewsComment(postId, body);
+    setState((current) => ({
+      ...current,
+      news: current.news.map((post) => post.id === postId
+        ? { ...post, comments: [...post.comments, comment] }
+        : post),
+    }));
+  };
+  const deleteNewsComment = async (commentId) => {
+    if (!apiReady) throw new Error('Сервер временно недоступен');
+    await api.deleteNewsComment(commentId);
+    setState((current) => ({
+      ...current,
+      news: current.news.map((post) => ({
+        ...post,
+        comments: post.comments.filter((comment) => comment.id !== commentId),
+      })),
+    }));
+  };
   let page;
   if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
+  else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'notifications') page = can(role, 'view_profile') ? <NotificationView notifications={state.notifications} markAllRead={markAllNotifications} markRead={markNotification} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (['rules', 'privacy', 'terms'].includes(route)) page = <LegalView kind={route} />;
   else page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
 
   return (
@@ -1510,6 +1803,7 @@ function App() {
       <div className="app-body">
         <Topbar role={role} search={search} setSearch={setSearch} navigate={navigate} openAuth={openAuth} onSignOut={signOut} unread={unread} actor={actor} />
         {page}
+        <SiteFooter navigate={navigate} />
       </div>
       {authOpen && <AuthModal onContinue={localTwitchLogin} onClose={() => setAuthOpen(false)} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={15} /> {toast}</div>}

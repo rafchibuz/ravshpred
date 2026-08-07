@@ -47,7 +47,7 @@ export function recentSubmissionCount(videos, authorId, now = Date.now()) {
 export function can(role, action) {
   const matrix = {
     guest: ['view_feed', 'open_video'],
-    user: ['view_feed', 'open_video', 'submit', 'vote', 'view_profile'],
+    user: ['view_feed', 'open_video', 'submit', 'vote', 'view_profile', 'comment_news'],
     moderator: [
       'view_feed',
       'open_video',
@@ -56,6 +56,7 @@ export function can(role, action) {
       'view_profile',
       'moderate',
       'mark_watched',
+      'comment_news',
     ],
     owner: [
       'view_feed',
@@ -66,6 +67,7 @@ export function can(role, action) {
       'moderate',
       'mark_watched',
       'manage',
+      'comment_news',
     ],
   };
   return matrix[role]?.includes(action) ?? false;
