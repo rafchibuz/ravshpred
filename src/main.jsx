@@ -345,8 +345,16 @@ function useRoute(defaultRoute) {
   return [route, navigate];
 }
 
-function Avatar({ small = false }) {
-  return <img className={`avatar ${small ? 'avatar-small' : ''}`} src="/assets/banner.png" alt="" />;
+function Avatar({ small = false, src = '', name = '' }) {
+  const className = `avatar ${small ? 'avatar-small' : ''}`;
+  if (src) {
+    return <img className={className} src={src} alt={`Аватар ${name || 'пользователя Twitch'}`} referrerPolicy="no-referrer" />;
+  }
+  return (
+    <span className={`${className} avatar-fallback`} aria-hidden="true">
+      {(name.trim()[0] || '?').toUpperCase()}
+    </span>
+  );
 }
 
 function Logo() {
@@ -394,7 +402,7 @@ function Sidebar({ route, navigate, role, unread, actor }) {
       </nav>
       <div className="side-bottom">
         <div className="account-card" aria-label={`Текущая роль: ${ROLE_LABELS[role]}`}>
-          <Avatar small />
+          <Avatar small src={actor?.avatarUrl} name={actor?.name} />
           <span>
             <strong>{role === 'guest' ? 'Без авторизации' : actor?.name || ROLE_LABELS[role]}</strong>
             <small>{ROLE_LABELS[role]}</small>
@@ -438,7 +446,7 @@ function Topbar({ role, search, setSearch, navigate, openAuth, onSignOut, unread
         ) : (
           <>
             <button className="user-pill role-pill" onClick={() => navigate('profile')}>
-              <Avatar small />
+              <Avatar small src={actor?.avatarUrl} name={actor?.name} />
               <span>{actor?.name || ROLE_LABELS[role]}</span>
             </button>
             <button className="ghost-btn signout-button" onClick={onSignOut}>Выйти</button>
@@ -519,7 +527,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
       <div className="card-body">
         <h3>{video.title}</h3>
         <div className="author-row">
-          <Avatar small />
+          <Avatar small src={video.authorAvatar} name={video.author} />
           <span>{video.author}</span>
           <em>·</em>
           <span>{new Date(video.createdAt).toLocaleDateString('ru-RU')}</span>
@@ -554,7 +562,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
 function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin }) {
   const [category, setCategory] = useState('Все');
   const [watchedOnly, setWatchedOnly] = useState(false);
-  const [sort, setSort] = useState('Популярности');
+  const [sort, setSort] = useState('Новые');
   const [list, setList] = useState(false);
   const approved = videos.filter((video) => video.status === 'approved');
   const manageVideo = (video) => {
@@ -592,8 +600,8 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
             {list ? <LayoutGrid size={15} /> : <List size={15} />} {list ? 'Плитка' : 'Список'}
           </button>
           <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Сортировка">
-            <option>Популярности</option>
             <option>Новые</option>
+            <option>Популярности</option>
             <option>Рейтингу</option>
           </select>
         </div>
@@ -800,7 +808,7 @@ function ProfileView({ videos, actor, navigate }) {
   return (
     <main className="main-content">
       <section className="profile-hero">
-        <Avatar />
+        <Avatar src={actor.avatarUrl} name={actor.name} />
         <div>
           <div className="eyebrow">ВАШ ПРОФИЛЬ</div>
           <h1>{actor.name}</h1>
@@ -1116,7 +1124,7 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
           </div>
           {state.moderators.map((item) => (
             <div className="moderator-row" key={item}>
-              <Avatar small />
+              <Avatar small name={item} />
               <strong>{item}</strong>
               <b>Модератор</b>
               <button
@@ -1266,7 +1274,11 @@ function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [toast, setToast] = useState('');
   const actor = sessionUser
-    ? { id: sessionUser.id, name: sessionUser.display_name || sessionUser.login }
+    ? {
+        id: sessionUser.id,
+        name: sessionUser.display_name || sessionUser.login,
+        avatarUrl: sessionUser.avatar_url || '',
+      }
     : role === 'owner'
       ? { id: 'owner', name: 'rafchibiskus' }
       : role === 'moderator'
