@@ -56,6 +56,7 @@ import discordIcon from '../assets/social/discord.png';
 import donationAlertsIcon from '../assets/social/donation-alerts.svg';
 import donatePayIcon from '../assets/social/donatepay.png';
 import memeAlertsIcon from '../assets/social/memealerts.png';
+import yandexMusicIcon from '../assets/social/yandex-music.png';
 
 const STORAGE_KEY = 'ravshann-predlozhka-local-v3';
 const MODERATION_POLL_INTERVAL = 15000;
@@ -678,7 +679,36 @@ function formatStreamDuration(startedAt, now) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
-function serviceIconFor(url) {
+const BUILTIN_LINK_ICONS = {
+  twitch: twitchIcon,
+  telegram: telegramIcon,
+  instagram: instagramIcon,
+  tiktok: tiktokIcon,
+  youtube: youtubeIcon,
+  discord: discordIcon,
+  'donation-alerts': donationAlertsIcon,
+  donatepay: donatePayIcon,
+  memealerts: memeAlertsIcon,
+  'yandex-music': yandexMusicIcon,
+};
+
+const LINK_ICON_OPTIONS = [
+  ['auto', 'Автоматически'],
+  ['twitch', 'Twitch'],
+  ['telegram', 'Telegram'],
+  ['instagram', 'Instagram'],
+  ['tiktok', 'TikTok'],
+  ['youtube', 'YouTube'],
+  ['discord', 'Discord'],
+  ['yandex-music', 'Яндекс Музыка'],
+  ['donation-alerts', 'DonationAlerts'],
+  ['donatepay', 'DonatePay'],
+  ['memealerts', 'MemeAlerts'],
+];
+
+function serviceIconFor(url, selectedIcon = '') {
+  if (selectedIcon.startsWith('data:image/')) return selectedIcon;
+  if (selectedIcon.startsWith('builtin:')) return BUILTIN_LINK_ICONS[selectedIcon.slice(8)] || null;
   let host;
   try {
     host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
@@ -708,7 +738,7 @@ function LinkDirectory({ title, links, compact = false }) {
       <header><h2>{title}</h2><span>{String(items.length).padStart(2, '0')}</span></header>
       <div className="social-directory">
         {items.map((item, index) => {
-          const serviceIcon = serviceIconFor(item.url);
+          const serviceIcon = serviceIconFor(item.url, item.icon || '');
           return (
             <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
               <span>{String(index + 1).padStart(2, '0')}</span>
@@ -851,11 +881,13 @@ function StreamClipsStrip({ streamer, navigate }) {
     : 'all';
   const [channel, setChannel] = useState(initialChannel);
   const [sort, setSort] = useState('popular');
+  const [sortDirection, setSortDirection] = useState('desc');
   const [minimumViews, setMinimumViews] = useState(0);
   const [hideDuplicates, setHideDuplicates] = useState(true);
   const [clips, setClips] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
+  const clipsRowRef = useRef(null);
   useEffect(() => {
     let active = true;
     api.loadTwitchClips({ channel: 'all', period: 'week' })
@@ -868,27 +900,30 @@ function StreamClipsStrip({ streamer, navigate }) {
     let items = latestTwitchStreamClips(clips, channel)
       .filter((clip) => Number(clip.view_count || 0) >= minimumViews);
     if (hideDuplicates) items = deduplicateTwitchClips(items);
-    return [...items].sort((a, b) => sort === 'new'
-      ? new Date(b.created_at) - new Date(a.created_at)
-      : Number(b.view_count) - Number(a.view_count));
-  }, [clips, channel, sort, minimumViews, hideDuplicates]);
+    return [...items].sort((a, b) => {
+      const difference = sort === 'new'
+        ? new Date(a.created_at) - new Date(b.created_at)
+        : Number(a.view_count) - Number(b.view_count);
+      return sortDirection === 'asc' ? difference : -difference;
+    });
+  }, [clips, channel, sort, sortDirection, minimumViews, hideDuplicates]);
   const hasCurrentStreamClips = Boolean(streamer?.live && streamer?.started_at && streamClips.some((clip) => (
     new Date(clip.created_at) >= new Date(streamer.started_at)
   )));
   return <section className="home-clips-section">
     <header>
-      <div><span className="panel-kicker">TWITCH-КЛИПЫ</span><h2>{hasCurrentStreamClips ? 'Клипы текущего стрима' : 'Клипы прошлого стрима'}</h2></div>
+      <div><span className="panel-kicker">TWITCH-КЛИПЫ</span><h2>{channel === 'all' ? 'Клипы прошлых стримов' : (hasCurrentStreamClips ? 'Клипы текущего стрима' : 'Клипы прошлого стрима')}</h2><p>{channel === 'all' ? 'Последние стримы с двух каналов — RavshanN и ravshanbtw' : `Последний доступный стрим канала ${channel === 'ravshann' ? 'RavshanN' : 'ravshanbtw'}`}</p></div>
       <button className="ghost-btn" onClick={() => navigate('clips')}>Все клипы <ArrowUpRight size={14} /></button>
     </header>
     <div className="home-clips-controls">
       <div className="home-channel-switch">{[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
-      <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Сортировка клипов на главной"><option value="popular">Популярные</option><option value="new">Новые</option></select>
+      <div className="home-clips-sort"><select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Сортировка клипов на главной"><option value="popular">По популярности</option><option value="new">По новизне</option></select><button type="button" onClick={() => setSortDirection((value) => value === 'desc' ? 'asc' : 'desc')} aria-label={sortDirection === 'desc' ? 'По убыванию' : 'По возрастанию'} title={sortDirection === 'desc' ? 'По убыванию' : 'По возрастанию'}>{sortDirection === 'desc' ? <ArrowDown size={15} /> : <ArrowUp size={15} />}</button></div>
       <label>От <input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /> просмотров</label>
       <label className="clips-deduplicate"><input type="checkbox" checked={hideDuplicates} onChange={(event) => setHideDuplicates(event.target.checked)} /><span>Без повторов</span></label>
     </div>
     {loading && <div className="home-clips-loading"><span className="clips-loader" /> Загружаем клипы…</div>}
     {!loading && !streamClips.length && <div className="home-clips-empty">Для выбранного канала и фильтров клипов пока нет.</div>}
-    {!loading && streamClips.length > 0 && <div className="home-clips-row">{streamClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} compact onOpen={setSelected} />)}</div>}
+    {!loading && streamClips.length > 0 && <div className="home-clips-row" ref={clipsRowRef} onWheel={(event) => { const row = clipsRowRef.current; if (!row || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return; event.preventDefault(); row.scrollLeft += event.deltaY; }}>{streamClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} compact onOpen={setSelected} />)}</div>}
     {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
   </section>;
 }
@@ -1897,27 +1932,101 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
   );
 }
 
+const LINK_SECTIONS = [
+  ['primary', 'Основные соцсети'],
+  ['more', 'Больше контента'],
+  ['clips', 'Нарезки со стримов'],
+  ['support', 'Поддержка'],
+];
+
+function resizeLinkIcon(file) {
+  return new Promise((resolve, reject) => {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return reject(new Error('Поддерживаются PNG, JPG и WebP'));
+    const objectURL = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const size = 128;
+      const scale = Math.min(size / image.naturalWidth, size / image.naturalHeight, 1);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(objectURL);
+      const dataURL = canvas.toDataURL('image/webp', 0.9);
+      if (dataURL.length > 300000) reject(new Error('Иконка получилась слишком большой'));
+      else resolve(dataURL);
+    };
+    image.onerror = () => { URL.revokeObjectURL(objectURL); reject(new Error('Не удалось прочитать изображение')); };
+    image.src = objectURL;
+  });
+}
+
+function SiteLinksModal({ links, onClose, onSave, notify }) {
+  const [section, setSection] = useState('primary');
+  const [draft, setDraft] = useState(() => (links || []).map((item) => ({ ...item })));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    const closeOnEscape = (event) => { if (event.key === 'Escape') onClose(); };
+    document.body.classList.add('modal-open');
+    window.addEventListener('keydown', closeOnEscape);
+    return () => { document.body.classList.remove('modal-open'); window.removeEventListener('keydown', closeOnEscape); };
+  }, [onClose]);
+  const sectionItems = draft.map((item, index) => ({ item, index })).filter(({ item }) => (item.section || 'primary') === section);
+  const patchItem = (index, patch) => setDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  const moveItem = (index, direction) => setDraft((current) => {
+    const next = [...current];
+    const sameSection = next.map((item, itemIndex) => ({ item, itemIndex })).filter(({ item }) => (item.section || 'primary') === section);
+    const position = sameSection.findIndex(({ itemIndex }) => itemIndex === index);
+    const target = sameSection[position + direction]?.itemIndex;
+    if (target == null) return current;
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+  const save = async () => {
+    const normalized = draft.map((item) => ({ ...item, name: item.name.trim(), url: item.url.trim(), section: item.section || 'primary' }));
+    if (normalized.some((item) => !item.name || !item.url.startsWith('https://'))) return notify('У каждой плашки должны быть название и ссылка, начинающаяся с https://');
+    setSaving(true);
+    try { await onSave(normalized); onClose(); } catch (error) { notify(error.message); } finally { setSaving(false); }
+  };
+  return <div className="modal-backdrop site-links-backdrop" role="presentation" onMouseDown={onClose}>
+    <section className="site-links-modal" role="dialog" aria-modal="true" aria-labelledby="site-links-title" onMouseDown={(event) => event.stopPropagation()}>
+      <button className="modal-close" onClick={onClose} aria-label="Закрыть"><X size={19} /></button>
+      <header><span className="panel-kicker">ГЛАВНАЯ СТРАНИЦА</span><h2 id="site-links-title">Ссылки и плашки</h2><p>Выберите раздел, затем настройте название, адрес, иконку и порядок.</p></header>
+      <nav className="site-links-tabs" aria-label="Раздел ссылок">{LINK_SECTIONS.map(([value, label]) => <button type="button" key={value} className={section === value ? 'selected' : ''} onClick={() => setSection(value)}>{label}<span>{draft.filter((item) => (item.section || 'primary') === value).length}</span></button>)}</nav>
+      <div className="site-links-editor">
+        {sectionItems.map(({ item, index }, position) => {
+          const iconValue = item.icon?.startsWith('data:image/') ? 'custom' : (item.icon?.replace('builtin:', '') || 'auto');
+          const preview = serviceIconFor(item.url, item.icon || '');
+          return <article className="site-link-card" key={index}>
+            <div className="site-link-card-preview">{preview ? <img src={preview} alt="" /> : <Link2 size={20} />}</div>
+            <div className="site-link-fields">
+              <label>Название<input value={item.name} maxLength={40} placeholder="Название плашки" onChange={(event) => patchItem(index, { name: event.target.value })} /></label>
+              <label>Ссылка<input type="url" value={item.url} placeholder="https://..." onChange={(event) => patchItem(index, { url: event.target.value })} /></label>
+              <label>Иконка<select value={iconValue} onChange={(event) => patchItem(index, { icon: event.target.value === 'auto' ? '' : `builtin:${event.target.value}` })}>{LINK_ICON_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}{iconValue === 'custom' && <option value="custom" disabled>Своя загруженная</option>}</select></label>
+              <label className="custom-icon-upload">Своя иконка<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { patchItem(index, { icon: await resizeLinkIcon(file) }); } catch (error) { notify(error.message); } event.target.value = ''; }} /></label>
+            </div>
+            <div className="site-link-actions"><button type="button" disabled={position === 0} onClick={() => moveItem(index, -1)} aria-label="Поднять"><ArrowUp size={15} /></button><button type="button" disabled={position === sectionItems.length - 1} onClick={() => moveItem(index, 1)} aria-label="Опустить"><ArrowDown size={15} /></button><button type="button" className="danger-btn" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /> Удалить</button></div>
+          </article>;
+        })}
+        {!sectionItems.length && <div className="site-links-empty">В этом разделе пока нет плашек.</div>}
+      </div>
+      <footer><button type="button" className="ghost-btn" onClick={() => setDraft((current) => [...current, { name: '', url: '', section, icon: '' }])}><Plus size={14} /> Добавить свою плашку</button><div><button type="button" className="outline-btn" onClick={onClose}>Отмена</button><button type="button" className="primary-btn" disabled={saving} onClick={save}>{saving ? 'Сохраняем…' : 'Сохранить плашки'}</button></div></footer>
+    </section>
+  </div>;
+}
+
 function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, onAddModerator, onDeleteModerator, onUpdateSettings }) {
   const [moderator, setModerator] = useState('');
   const [category, setCategory] = useState('');
   const [categoryDeleteArmed, setCategoryDeleteArmed] = useState('');
   const [settings, setSettings] = useState(state.settings);
+  const [linksEditorOpen, setLinksEditorOpen] = useState(false);
   useEffect(() => setSettings(state.settings), [state.settings]);
-  const updateSiteLink = (index, patch) => setSettings((current) => ({
-    ...current,
-    siteLinks: (current.siteLinks || []).map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item),
-  }));
-  const moveSiteLink = (index, direction) => setSettings((current) => {
-    const links = [...(current.siteLinks || [])];
-    let target = index + direction;
-    while (target >= 0 && target < links.length && links[target].section !== links[index].section) target += direction;
-    if (target < 0 || target >= links.length) return current;
-    [links[index], links[target]] = [links[target], links[index]];
-    return { ...current, siteLinks: links };
-  });
-  const canMoveSiteLink = (index, direction) => (settings.siteLinks || []).some((item, itemIndex) => (
-    direction < 0 ? itemIndex < index : itemIndex > index
-  ) && item.section === settings.siteLinks[index].section);
+  const persistSettings = async (nextSettings) => {
+    if (onUpdateSettings) await onUpdateSettings(nextSettings);
+    else setState((current) => ({ ...current, settings: nextSettings, audit: ['Ravshann обновил глобальные настройки', ...current.audit] }));
+    setSettings(nextSettings);
+  };
 
   const addModerator = async () => {
     const value = moderator.trim().replace(/^@/, '');
@@ -2088,47 +2197,20 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
             <input type="checkbox" checked={Boolean(settings.allowSelfVote)} onChange={(event) => setSettings({ ...settings, allowSelfVote: event.target.checked })} />
             Разрешить голосовать за собственные видео
           </label>
-          <h3>Ссылки на главной</h3>
-          <p className="settings-help">Выбери раздел для каждой ссылки и настрой порядок стрелками.</p>
-          <div className="social-settings-list">
-            {(settings.siteLinks || []).map((item, index) => (
-              <div className="social-setting-row" key={index}>
-                <label>Название
-                  <input value={item.name} maxLength={40} placeholder="Telegram" onChange={(event) => updateSiteLink(index, { name: event.target.value })} />
-                </label>
-                <label>Ссылка
-                  <input type="url" value={item.url} placeholder="https://..." onChange={(event) => updateSiteLink(index, { url: event.target.value })} />
-                </label>
-                <label>Раздел
-                  <select value={item.section || 'primary'} onChange={(event) => updateSiteLink(index, { section: event.target.value })}>
-                    <option value="primary">Основные</option>
-                    <option value="more">Больше контента</option>
-                    <option value="clips">Нарезки</option>
-                    <option value="support">Поддержка</option>
-                  </select>
-                </label>
-                <div className="link-order-actions">
-                  <button type="button" disabled={!canMoveSiteLink(index, -1)} onClick={() => moveSiteLink(index, -1)} aria-label="Поднять ссылку">↑</button>
-                  <button type="button" disabled={!canMoveSiteLink(index, 1)} onClick={() => moveSiteLink(index, 1)} aria-label="Опустить ссылку">↓</button>
-                  <button type="button" className="danger-btn" onClick={() => setSettings({ ...settings, siteLinks: settings.siteLinks.filter((_, linkIndex) => linkIndex !== index) })}>Удалить</button>
-                </div>
-              </div>
-            ))}
-            <button type="button" className="ghost-btn" onClick={() => setSettings({ ...settings, siteLinks: [...(settings.siteLinks || []), { name: '', url: '', section: 'primary' }] })}><Plus size={14} /> Добавить ссылку</button>
-          </div>
+          <div className="site-links-settings-summary"><div><h3>Ссылки на главной</h3><p className="settings-help">Все разделы, плашки, порядок и иконки открываются в отдельном удобном окне.</p></div><span>{(settings.siteLinks || []).length} плашек</span><button type="button" className="outline-btn" onClick={() => setLinksEditorOpen(true)}><Settings size={15} /> Открыть редактор</button></div>
           <button
             className="primary-btn"
             onClick={async () => {
               if (onUpdateSettings) {
                 try {
-                  await onUpdateSettings(settings);
+                  await persistSettings(settings);
                   notify('Настройки сохранены');
                 } catch (error) {
                   notify(error.message);
                 }
                 return;
               }
-              setState((current) => ({ ...current, settings, audit: ['Ravshann обновил глобальные настройки', ...current.audit] }));
+              await persistSettings(settings);
               notify('Настройки сохранены');
             }}
           >
@@ -2136,6 +2218,7 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
           </button>
         </section>
       </div>
+      {linksEditorOpen && <SiteLinksModal links={settings.siteLinks || []} notify={notify} onClose={() => setLinksEditorOpen(false)} onSave={async (siteLinks) => { await persistSettings({ ...settings, siteLinks }); notify('Плашки сохранены'); }} />}
       <section className="panel owner-panel users-panel">
         <div className="panel-head"><h2>Пользователи</h2><span className="panel-kicker">{state.userStats?.length || 0} АККАУНТОВ</span></div>
         <div className="users-table-wrap">
@@ -2459,7 +2542,16 @@ function App() {
   const updateSettings = async (settings) => {
     if (!apiReady) throw new Error('API пока недоступен');
     await api.updateSettings(settings);
-    setState((current) => ({ ...current, settings }));
+    const siteLinks = settings.siteLinks || [];
+    setState((current) => ({
+      ...current,
+      settings,
+      streamer: current.streamer ? {
+        ...current.streamer,
+        social_links: siteLinks.filter((item) => item.section !== 'support'),
+        support_links: siteLinks.filter((item) => item.section === 'support'),
+      } : current.streamer,
+    }));
   };
   const markNotification = async (id) => {
     if (apiReady) await api.readNotification(id);

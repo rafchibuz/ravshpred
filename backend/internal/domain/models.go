@@ -124,6 +124,7 @@ type SocialItem struct {
 	Name    string `json:"name"`
 	URL     string `json:"url"`
 	Section string `json:"section,omitempty"`
+	Icon    string `json:"icon,omitempty"`
 }
 
 type SocialLinks struct {

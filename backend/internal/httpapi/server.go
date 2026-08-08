@@ -1020,16 +1020,20 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	validSocials := len(input.SocialItems) <= 12
+	validIcon := func(value string) bool {
+		value = strings.TrimSpace(value)
+		return len(value) <= 350000 && (value == "" || strings.HasPrefix(value, "builtin:") || strings.HasPrefix(value, "data:image/"))
+	}
+	validSocials := len(input.SocialItems) <= 40
 	for _, item := range input.SocialItems {
 		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" ||
-			(item.Section != "primary" && item.Section != "more" && item.Section != "clips") {
+			(item.Section != "primary" && item.Section != "more" && item.Section != "clips") || !validIcon(item.Icon) {
 			validSocials = false
 		}
 	}
-	validSupport := len(input.SupportItems) <= 12
+	validSupport := len(input.SupportItems) <= 40
 	for _, item := range input.SupportItems {
-		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" || item.Section != "support" {
+		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" || item.Section != "support" || !validIcon(item.Icon) {
 			validSupport = false
 		}
 	}

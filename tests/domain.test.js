@@ -25,13 +25,13 @@ test('фильтр Twitch-клипов оставляет самый попул�
   assert.deepEqual(deduplicateTwitchClips(clips).map((clip) => clip.id), ['best', 'other', 'live-a', 'live-b']);
 });
 
-test('главная выбирает клипы последнего Twitch-стрима', () => {
+test('главная выбирает последние Twitch-стримы каждого канала', () => {
   const clips = [
     { id: 'old', broadcaster_name: 'RavshanN', video_id: 'vod-old', created_at: '2026-08-07T18:00:00Z' },
     { id: 'latest-a', broadcaster_name: 'ravshanbtw', video_id: 'vod-new', created_at: '2026-08-09T18:00:00Z' },
     { id: 'latest-b', broadcaster_name: 'ravshanbtw', video_id: 'vod-new', created_at: '2026-08-09T18:10:00Z' },
   ];
-  assert.deepEqual(latestTwitchStreamClips(clips).map((clip) => clip.id), ['latest-a', 'latest-b']);
+  assert.deepEqual(latestTwitchStreamClips(clips).map((clip) => clip.id), ['old', 'latest-a', 'latest-b']);
   assert.deepEqual(latestTwitchStreamClips(clips, 'ravshann').map((clip) => clip.id), ['old']);
 });
 

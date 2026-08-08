@@ -76,19 +76,22 @@ export function latestTwitchStreamClips(clips, channel = 'all') {
     channel === 'all' || String(clip.broadcaster_name || '').toLowerCase() === channel.toLowerCase()
   ));
   if (!candidates.length) return [];
-  const latest = [...candidates].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-  const broadcaster = String(latest.broadcaster_name || '').toLowerCase();
-  if (latest.video_id) {
-    return candidates.filter((clip) => (
-      String(clip.broadcaster_name || '').toLowerCase() === broadcaster && clip.video_id === latest.video_id
+  const latestSession = (items) => {
+    const latest = [...items].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+    if (latest.video_id) return items.filter((clip) => clip.video_id === latest.video_id);
+    const latestTime = new Date(latest.created_at).getTime();
+    return items.filter((clip) => (
+      !clip.video_id && latestTime - new Date(clip.created_at).getTime() <= 12 * 60 * 60 * 1000
     ));
-  }
-  const latestTime = new Date(latest.created_at).getTime();
-  return candidates.filter((clip) => (
-    String(clip.broadcaster_name || '').toLowerCase() === broadcaster
-    && !clip.video_id
-    && latestTime - new Date(clip.created_at).getTime() <= 12 * 60 * 60 * 1000
-  ));
+  };
+  if (channel !== 'all') return latestSession(candidates);
+  const byBroadcaster = new Map();
+  candidates.forEach((clip) => {
+    const broadcaster = String(clip.broadcaster_name || '').toLowerCase();
+    if (!byBroadcaster.has(broadcaster)) byBroadcaster.set(broadcaster, []);
+    byBroadcaster.get(broadcaster).push(clip);
+  });
+  return [...byBroadcaster.values()].flatMap(latestSession);
 }
 
 export function can(role, action) {
