@@ -645,9 +645,22 @@ function StreamerHome({ streamer }) {
     <main className="main-content stream-home">
       <section className={`streamer-hero streamer-cinema ${streamer.live ? 'is-live' : ''}`}>
       {streamer.live && (
-        <div className="twitch-cinema-grid">
-          <iframe title="Стрим RavshanN" src={`https://player.twitch.tv/?channel=ravshann&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen />
-          <iframe title="Чат RavshanN" src={`https://www.twitch.tv/embed/ravshann/chat?parent=${encodeURIComponent(parent)}&darkpopout`} />
+        <div className="twitch-live-shell">
+          <div className="twitch-player-column">
+            <iframe title="Стрим RavshanN" src={`https://player.twitch.tv/?channel=ravshann&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen />
+            <div className="stream-info-bar">
+              <div className="stream-channel-info">
+                <Avatar src={streamer.avatar_url} name={streamer.display_name || 'RavshanN'} />
+                <div><h1>{streamer.display_name || 'RavshanN'}</h1><strong>{streamer.title}</strong><span>{streamer.game_name || 'Twitch'}</span></div>
+              </div>
+              <div className="stream-live-metrics">
+                <span className="stream-state"><i /> В ЭФИРЕ</span>
+                <b>{Number(streamer.viewer_count || 0).toLocaleString('ru-RU')} онлайн</b>
+                <time>{formatStreamDuration(streamer.started_at, now)}</time>
+              </div>
+            </div>
+          </div>
+          <iframe className="twitch-chat-frame" title="Чат RavshanN" src={`https://www.twitch.tv/embed/ravshann/chat?parent=${encodeURIComponent(parent)}&darkpopout`} />
         </div>
       )}
       {!streamer.live && (
@@ -658,7 +671,7 @@ function StreamerHome({ streamer }) {
           <p>Когда эфир начнётся, здесь автоматически появятся плеер и чат.</p>
         </div>
       )}
-      <div className="stream-info-bar">
+      {!streamer.live && <div className="stream-info-bar">
         <div className="stream-channel-info">
           <Avatar src={streamer.avatar_url} name={streamer.display_name || 'RavshanN'} />
           <div><h1>{streamer.display_name || 'RavshanN'}</h1><strong>{streamer.live ? streamer.title : 'Канал сейчас офлайн'}</strong><span>{streamer.game_name || 'Twitch'}</span></div>
@@ -667,7 +680,7 @@ function StreamerHome({ streamer }) {
           <span className="stream-state"><i /> {streamer.live ? 'В ЭФИРЕ' : 'ОФЛАЙН'}</span>
           {streamer.live && <><b>{Number(streamer.viewer_count || 0).toLocaleString('ru-RU')} онлайн</b><time>{formatStreamDuration(streamer.started_at, now)}</time></>}
         </div>
-      </div>
+      </div>}
       </section>
       <section className="stream-socials">
         <div><span className="panel-kicker">СОЦИАЛЬНЫЕ СЕТИ</span><h2>RavshanN в интернете</h2></div>

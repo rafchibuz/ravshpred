@@ -216,8 +216,10 @@
 .social-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .social-links a { display: inline-flex; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid #3a3441; border-radius: 7px; color: #c6becb; font-size: 9px; text-decoration: none; }
 .social-links a:hover { border-color: #9149d8; color: white; }
-.twitch-cinema-grid { display: grid; grid-template-columns: minmax(0,1fr) clamp(300px,24vw,390px); height: min(68vh,720px); min-height: 500px; gap: 1px; background: #29252d; }
-.twitch-cinema-grid iframe { width: 100%; height: 100%; border: 0; background: #0e0e10; }
+.twitch-live-shell { display: grid; grid-template-columns: minmax(0,1fr) clamp(300px,24vw,390px); height: min(76vh,810px); min-height: 590px; gap: 1px; background: #29252d; }
+.twitch-player-column { display: grid; grid-template-rows: minmax(0,1fr) auto; min-width: 0; background: #0e0e10; }
+.twitch-live-shell iframe { width: 100%; height: 100%; border: 0; background: #0e0e10; }
+.twitch-chat-frame { grid-column: 2; grid-row: 1; }
 .stream-info-bar { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 20px; min-height: 90px; padding: 14px 18px; border-top: 1px solid #29262d; background: #121114; }
 .stream-channel-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .stream-channel-info > .avatar { width: 52px; height: 52px; flex: 0 0 auto; }
@@ -263,9 +265,10 @@
   .comment-form .primary-btn { width: 44px; min-height: 44px; }
   .legal-hero { padding: 20px 16px; }
   .stream-home { padding: 12px 8px 20px; }
-  .twitch-cinema-grid { grid-template-columns: 1fr; height: auto; min-height: 0; }
-  .twitch-cinema-grid iframe { height: auto; aspect-ratio: 16 / 9; }
-  .twitch-cinema-grid iframe:last-child { height: 430px; aspect-ratio: auto; }
+  .twitch-live-shell { grid-template-columns: 1fr; height: auto; min-height: 0; }
+  .twitch-player-column { grid-row: 1; }
+  .twitch-player-column > iframe { height: auto; aspect-ratio: 16 / 9; }
+  .twitch-chat-frame { grid-column: 1; grid-row: 2; height: 430px !important; }
   .stream-info-bar { grid-template-columns: 1fr; gap: 11px; padding: 12px; }
   .stream-channel-info > .avatar { width: 43px; height: 43px; }
   .stream-live-metrics { justify-content: space-between; padding-left: 55px; }
