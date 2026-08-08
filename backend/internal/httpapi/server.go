@@ -32,6 +32,13 @@ type Server struct {
 	streamerMu         sync.Mutex
 	streamerCache      domain.StreamerStatus
 	streamerCacheUntil time.Time
+	clipsMu            sync.Mutex
+	clipsCache         map[string]clipsCacheEntry
+}
+
+type clipsCacheEntry struct {
+	Items []twitch.Clip
+	Until time.Time
 }
 
 type actorContext struct {
@@ -49,8 +56,9 @@ func New(cfg config.Config, database store.Store, youtubeClient youtube.Client, 
 	}
 	return &Server{
 		cfg: cfg, store: database, youtube: youtubeClient,
-		twitch: twitch.New(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchRedirectURL),
-		logger: logger,
+		twitch:     twitch.New(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchRedirectURL),
+		logger:     logger,
+		clipsCache: make(map[string]clipsCacheEntry),
 	}
 }
 
@@ -101,6 +109,14 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "twitch_not_configured", "Twitch API не настроен")
 		return
 	}
+	cacheKey := r.URL.Query().Encode()
+	s.clipsMu.Lock()
+	if cached, ok := s.clipsCache[cacheKey]; ok && time.Now().Before(cached.Until) {
+		s.clipsMu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"data": cached.Items})
+		return
+	}
+	s.clipsMu.Unlock()
 	channel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
 	logins := []string{"ravshann", "ravshanbtw"}
 	if channel != "" && channel != "all" {
@@ -150,6 +166,9 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, clips...)
 	}
+	s.clipsMu.Lock()
+	s.clipsCache[cacheKey] = clipsCacheEntry{Items: items, Until: time.Now().Add(5 * time.Minute)}
+	s.clipsMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"data": items})
 }
 

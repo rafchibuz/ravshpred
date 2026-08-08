@@ -354,15 +354,23 @@
 .clips-heading-total strong { color: #c681ff; font-size: 25px; }
 .clips-heading-total span { color: #77717d; font-size: 9px; }
 .clips-filters { position: relative; display: grid; gap: 11px; margin-bottom: 20px; padding: 15px 17px; border: 1px solid #312c37; border-radius: 10px; background: #17151a; }
-.clips-filter-group { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding-right: 205px; }
+.clips-filter-group { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding-right: 235px; }
 .clips-filter-group > span { width: 54px; color: #716a77; font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .clips-filter-group button { min-height: 30px; padding: 0 12px; border: 1px solid #37313d; border-radius: 16px; color: #9d96a3; background: #131116; font-size: 9px; }
 .clips-filter-group button:hover, .clips-filter-group button.selected { border-color: #9149d8; color: #fff; background: #502477; }
-.clips-sort { position: absolute; top: 15px; right: 17px; width: 185px; display: grid; gap: 6px; color: #77717d; font-size: 8px; }
-.clips-sort select { height: 34px; font-size: 10px; }
+.clips-sort { position: absolute; top: 15px; right: 17px; width: 215px; display: grid; grid-template-columns: minmax(0, 1fr) 36px; align-items: end; gap: 7px; color: #77717d; font-size: 8px; }
+.clips-sort label { display: grid; gap: 6px; }
+.clips-sort select { width: 100%; height: 34px; font-size: 10px; }
+.clips-sort button { width: 36px; height: 34px; display: grid; place-items: center; border: 1px solid #42374a; border-radius: 7px; color: #c188ef; background: #211828; }
+.clips-sort button:hover { border-color: #9149d8; color: #fff; }
 .clips-date-range { display: flex; align-items: end; gap: 8px; padding-left: 61px; }
 .clips-date-range label { display: grid; gap: 5px; color: #77717d; font-size: 8px; }
 .clips-date-range input { min-height: 34px; color-scheme: dark; font-size: 10px; }
+.clips-extra-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 13px; padding: 3px 235px 0 61px; border-top: 1px solid #29252e; }
+.clips-extra-filters > label:first-child { width: 155px; display: grid; gap: 5px; color: #77717d; font-size: 8px; }
+.clips-extra-filters input[type="number"] { min-height: 34px; font-size: 10px; }
+.clips-deduplicate { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; color: #a49daa; font-size: 9px; cursor: pointer; }
+.clips-deduplicate input { width: 15px; height: 15px; accent-color: #9149d8; }
 .clips-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .clip-card { min-width: 0; overflow: hidden; padding: 0; text-align: left; border: 1px solid #302b35; border-radius: 10px; color: inherit; background: #17151a; transition: transform .18s ease, border-color .18s ease; }
 .clip-card:hover { transform: translateY(-3px); border-color: #8044b7; }
@@ -380,6 +388,9 @@
 .clip-card-body > div { display: flex; justify-content: space-between; gap: 8px; color: #a55ee8; font-size: 9px; }
 .clip-card-body time, .clip-card-body small { color: #77717d; }
 .clip-card-body small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.clips-load-more { min-width: 210px; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 20px auto 0; border: 1px solid #5d3878; border-radius: 9px; color: #d8b5f5; background: #26172f; font-size: 10px; font-weight: 700; }
+.clips-load-more:hover { border-color: #a858ec; background: #352043; }
+.clips-load-more span { min-width: 22px; height: 20px; display: grid; place-items: center; padding: 0 5px; border-radius: 10px; background: #512873; font-size: 8px; }
 .clips-state { min-height: 330px; display: grid; place-items: center; align-content: center; gap: 8px; color: #8b8491; border: 1px dashed #39333f; border-radius: 10px; text-align: center; }
 .clips-state strong { color: #d6cfda; }
 .clips-state span { font-size: 10px; }
@@ -441,6 +452,8 @@ body.modal-open { overflow: hidden; }
   .clips-filter-group > span { flex: 0 0 48px; }
   .clips-filter-group button { flex: 0 0 auto; }
   .clips-sort { position: static; width: 100%; }
+  .clips-extra-filters { padding: 8px 0 0; }
+  .clips-extra-filters > label:first-child { width: 100%; }
   .clips-date-range { padding-left: 0; }
   .clips-date-range label { min-width: 0; flex: 1; }
   .clips-date-range input { width: 100%; min-width: 0; }

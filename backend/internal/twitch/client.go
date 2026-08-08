@@ -244,18 +244,58 @@ func (c *Client) ClipsByLogin(ctx context.Context, login string, startedAt, ende
 	if len(users.Data) != 1 {
 		return nil, errors.New("twitch streamer not found")
 	}
-	query := url.Values{"broadcaster_id": {users.Data[0].ID}, "first": {"100"}}
-	if startedAt != nil {
-		query.Set("started_at", startedAt.UTC().Format(time.RFC3339))
+	type clipWindow struct{ start, end *time.Time }
+	windows := []clipWindow{{start: startedAt, end: endedAt}}
+	if startedAt == nil && endedAt == nil {
+		start := time.Date(2016, 1, 1, 0, 0, 0, 0, time.UTC)
+		end := time.Now().UTC()
+		startedAt, endedAt = &start, &end
 	}
-	if endedAt != nil {
-		query.Set("ended_at", endedAt.UTC().Format(time.RFC3339))
+	if startedAt != nil && endedAt != nil && endedAt.Sub(*startedAt) > 370*24*time.Hour {
+		windows = nil
+		for cursor := startedAt.UTC(); cursor.Before(*endedAt); {
+			next := cursor.AddDate(1, 0, 0)
+			if next.After(*endedAt) {
+				next = endedAt.UTC()
+			}
+			windowStart, windowEnd := cursor, next
+			windows = append(windows, clipWindow{start: &windowStart, end: &windowEnd})
+			cursor = next
+		}
 	}
-	var clips struct {
-		Data []Clip `json:"data"`
+
+	result := make([]Clip, 0, 500)
+	seen := make(map[string]struct{})
+	for _, window := range windows {
+		query := url.Values{"broadcaster_id": {users.Data[0].ID}, "first": {"100"}}
+		if window.start != nil {
+			query.Set("started_at", window.start.UTC().Format(time.RFC3339))
+		}
+		if window.end != nil {
+			query.Set("ended_at", window.end.UTC().Format(time.RFC3339))
+		}
+		for page := 0; page < 10; page++ {
+			var clips struct {
+				Data       []Clip `json:"data"`
+				Pagination struct {
+					Cursor string `json:"cursor"`
+				} `json:"pagination"`
+			}
+			if err := get("https://api.twitch.tv/helix/clips?"+query.Encode(), &clips); err != nil {
+				return nil, err
+			}
+			for _, clip := range clips.Data {
+				if _, exists := seen[clip.ID]; exists {
+					continue
+				}
+				seen[clip.ID] = struct{}{}
+				result = append(result, clip)
+			}
+			if clips.Pagination.Cursor == "" || len(clips.Data) == 0 {
+				break
+			}
+			query.Set("after", clips.Pagination.Cursor)
+		}
 	}
-	if err := get("https://api.twitch.tv/helix/clips?"+query.Encode(), &clips); err != nil {
-		return nil, err
-	}
-	return clips.Data, nil
+	return result, nil
 }

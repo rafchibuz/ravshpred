@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   can,
+  deduplicateTwitchClips,
   isDuplicate,
   newPendingSubmissions,
   parseYouTubeId,
@@ -11,6 +12,17 @@ import {
   transitionSubmission,
   voteTotals,
 } from '../src/domain.js';
+
+test('фильтр Twitch-клипов оставляет самый популярный клип одного момента', () => {
+  const clips = [
+    { id: 'low', video_id: 'vod-1', vod_offset: 100, view_count: 20 },
+    { id: 'best', video_id: 'vod-1', vod_offset: 118, view_count: 200 },
+    { id: 'other', video_id: 'vod-1', vod_offset: 220, view_count: 10 },
+    { id: 'live-a', video_id: '', vod_offset: null, view_count: 5 },
+    { id: 'live-b', video_id: '', vod_offset: null, view_count: 4 },
+  ];
+  assert.deepEqual(deduplicateTwitchClips(clips).map((clip) => clip.id), ['best', 'other', 'live-a', 'live-b']);
+});
 
 test('парсер понимает основные форматы YouTube URL', () => {
   const id = 'dQw4w9WgXcQ';

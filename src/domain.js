@@ -49,6 +49,28 @@ export function newPendingSubmissions(knownIds, videos) {
   return videos.filter((video) => video.status === 'pending' && !known.has(video.id));
 }
 
+export function deduplicateTwitchClips(clips, toleranceSeconds = 30) {
+  const kept = [];
+  const momentsByVideo = new Map();
+  [...(clips || [])]
+    .sort((a, b) => Number(b.view_count) - Number(a.view_count))
+    .forEach((clip) => {
+      const hasPosition = clip.video_id && clip.vod_offset != null && Number.isFinite(Number(clip.vod_offset));
+      let duplicate = false;
+      if (hasPosition) {
+        const offset = Number(clip.vod_offset);
+        const bucket = Math.floor(offset / toleranceSeconds);
+        const moments = momentsByVideo.get(clip.video_id) || new Map();
+        duplicate = [bucket - 1, bucket, bucket + 1]
+          .some((key) => moments.has(key) && Math.abs(moments.get(key) - offset) <= toleranceSeconds);
+        if (!duplicate) moments.set(bucket, offset);
+        momentsByVideo.set(clip.video_id, moments);
+      }
+      if (!duplicate) kept.push(clip);
+    });
+  return kept;
+}
+
 export function can(role, action) {
   const matrix = {
     guest: ['view_feed', 'open_video'],

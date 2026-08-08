@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  ArrowDown,
+  ArrowUp,
   ArrowUpRight,
   Bell,
   Check,
@@ -34,6 +36,7 @@ import {
 } from 'lucide-react';
 import {
   can,
+  deduplicateTwitchClips,
   isDuplicate,
   newPendingSubmissions,
   parseYouTubeId,
@@ -831,10 +834,14 @@ function TwitchClipModal({ clip, onClose }) {
 function TwitchClipsView() {
   const [filters, setFilters] = useState({ channel: 'all', period: 'week', from: '', to: '' });
   const [sort, setSort] = useState('popular');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [minimumViews, setMinimumViews] = useState(0);
+  const [hideDuplicates, setHideDuplicates] = useState(true);
   const [clips, setClips] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [visibleCount, setVisibleCount] = useState(48);
 
   useEffect(() => {
     if (filters.period === 'custom' && (!filters.from || !filters.to)) return undefined;
@@ -848,11 +855,20 @@ function TwitchClipsView() {
     return () => { active = false; };
   }, [filters]);
 
-  const sorted = useMemo(() => [...clips].sort((a, b) => (
-    sort === 'new'
-      ? new Date(b.created_at) - new Date(a.created_at)
-      : Number(b.view_count) - Number(a.view_count)
-  )), [clips, sort]);
+  const visibleClips = useMemo(() => {
+    let items = clips.filter((clip) => Number(clip.view_count || 0) >= Number(minimumViews || 0));
+    if (hideDuplicates) {
+      items = deduplicateTwitchClips(items);
+    }
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    return [...items].sort((a, b) => direction * (
+      sort === 'new'
+        ? new Date(a.created_at) - new Date(b.created_at)
+        : Number(a.view_count) - Number(b.view_count)
+    ));
+  }, [clips, sort, sortDirection, minimumViews, hideDuplicates]);
+  useEffect(() => setVisibleCount(48), [filters, sort, sortDirection, minimumViews, hideDuplicates]);
+  const displayedClips = visibleClips.slice(0, visibleCount);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
 
   return (
@@ -860,15 +876,15 @@ function TwitchClipsView() {
       <section className="page-heading clips-heading">
         <div>
           <div className="eyebrow"><Clapperboard size={13} /> TWITCH-КЛИПЫ</div>
-          <h1>Топ клипы RavshanN</h1>
-          <p>Клипы обоих каналов напрямую из Twitch — без загрузки файлов на сайт</p>
+          <h1>Топ клипы Равшана</h1>
+          <p>Самые яркие моменты со стримов — выбирайте канал, период и смотрите лучшее</p>
         </div>
-        <div className="clips-heading-total"><strong>{sorted.length}</strong><span>клипов найдено</span></div>
+        <div className="clips-heading-total"><strong>{visibleClips.length}</strong><span>из {clips.length} клипов</span></div>
       </section>
       <section className="clips-filters" aria-label="Фильтры клипов">
         <div className="clips-filter-group">
           <span>Канал</span>
-          {[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'RavshanBTW']].map(([value, label]) => (
+          {[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => (
             <button key={value} className={filters.channel === value ? 'selected' : ''} onClick={() => updateFilter('channel', value)}>{label}</button>
           ))}
         </div>
@@ -882,13 +898,17 @@ function TwitchClipsView() {
           <label>От <input type="date" value={filters.from} onChange={(event) => updateFilter('from', event.target.value)} /></label>
           <label>До <input type="date" value={filters.to} onChange={(event) => updateFilter('to', event.target.value)} /></label>
         </div>}
-        <label className="clips-sort">Сортировка<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label>
+        <div className="clips-extra-filters">
+          <label>Минимум просмотров<input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /></label>
+          <label className="clips-deduplicate"><input type="checkbox" checked={hideDuplicates} onChange={(event) => setHideDuplicates(event.target.checked)} /><span>Скрывать клипы с одного момента</span></label>
+        </div>
+        <div className="clips-sort"><label>Сортировка<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label><button onClick={() => setSortDirection((current) => current === 'desc' ? 'asc' : 'desc')} aria-label={sortDirection === 'desc' ? 'Сортировать по возрастанию' : 'Сортировать по убыванию'} title={sortDirection === 'desc' ? 'Сейчас по убыванию' : 'Сейчас по возрастанию'}>{sortDirection === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button></div>
       </section>
       {loading && <div className="clips-state"><span className="clips-loader" />Загружаем клипы Twitch…</div>}
       {!loading && error && <div className="clips-state error"><Clapperboard size={28} /><strong>Не удалось получить клипы</strong><span>{error}</span></div>}
-      {!loading && !error && !sorted.length && <div className="clips-state"><Clapperboard size={28} /><strong>За этот период клипов нет</strong><span>Выберите другой канал или период.</span></div>}
-      {!loading && !error && sorted.length > 0 && <section className="clips-grid">
-        {sorted.map((clip) => <button key={clip.id} className="clip-card" onClick={() => setSelected(clip)} aria-label={`Смотреть клип «${clip.title}»`}>
+      {!loading && !error && !visibleClips.length && <div className="clips-state"><Clapperboard size={28} /><strong>Под эти фильтры клипов нет</strong><span>Уменьшите минимум просмотров или выберите другой период.</span></div>}
+      {!loading && !error && visibleClips.length > 0 && <section className="clips-grid">
+        {displayedClips.map((clip) => <button key={clip.id} className="clip-card" onClick={() => setSelected(clip)} aria-label={`Смотреть клип «${clip.title}»`}>
           <div className="clip-thumbnail">
             <img src={clip.thumbnail_url} alt="" loading="lazy" />
             <span className="clip-play"><Play size={22} fill="currentColor" /></span>
@@ -898,6 +918,7 @@ function TwitchClipsView() {
           <div className="clip-card-body"><h2>{clip.title}</h2><div><span>{clip.broadcaster_name}</span><time>{new Date(clip.created_at).toLocaleDateString('ru-RU')}</time></div><small>Автор клипа: {clip.creator_name}</small></div>
         </button>)}
       </section>}
+      {!loading && !error && displayedClips.length < visibleClips.length && <button className="clips-load-more" onClick={() => setVisibleCount((current) => current + 48)}>Показать ещё <span>{visibleClips.length - displayedClips.length}</span></button>}
       {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
     </main>
   );
