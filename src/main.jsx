@@ -97,7 +97,9 @@ function makeInitialState() {
   return {
     categories: ['Без категории', 'Смешное', 'Трейлеры', 'Фильмы и сериалы', 'Разоблачения'],
     moderators: ['moderator_live', 'lexapro_tv', 'shadowmff'],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {} },
+    streamer: null,
+    userStats: [],
     videos: [
       {
         id: 12451,
@@ -330,7 +332,9 @@ function emptyServerState() {
     news: [],
     audit: [],
     auditRecords: [],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {} },
+    streamer: null,
+    userStats: [],
   };
 }
 
@@ -581,6 +585,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
           <span>{new Date(video.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
         <div className="channel">YouTube: {video.channel}</div>
+        {video.submitterComment && <p className="viewer-wish"><MessageCircle size={12} /> {video.submitterComment}</p>}
         <div className="metrics">
           <div className="youtube-metrics" aria-label="Метрики YouTube">
             <span title="Просмотры на YouTube"><Eye size={12} /> {video.views}</span>
@@ -611,7 +616,41 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
   );
 }
 
-function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin }) {
+function StreamerHero({ streamer }) {
+  if (!streamer) return null;
+  const parent = window.location.hostname || 'localhost';
+  const socials = streamer.socials || {};
+  const links = [
+    ['Twitch', socials.twitch || 'https://www.twitch.tv/ravshann'],
+    ['YouTube', socials.youtube],
+    ['Telegram', socials.telegram],
+    ['VK', socials.vk],
+  ].filter(([, url]) => url);
+  return (
+    <section className={`streamer-hero ${streamer.live ? 'is-live' : ''}`}>
+      <div className="streamer-summary">
+        <Avatar src={streamer.avatar_url} name={streamer.display_name || 'RavshanN'} />
+        <div>
+          <span className="stream-state"><i /> {streamer.live ? 'СЕЙЧАС В ЭФИРЕ' : 'СЕЙЧАС НЕ В ЭФИРЕ'}</span>
+          <h2>{streamer.display_name || 'RavshanN'}</h2>
+          <p>{streamer.live ? streamer.title : 'Предложка, новости, эфиры и лучшие моменты сообщества'}</p>
+          {streamer.live && <small>{streamer.game_name || 'Twitch'} · {Number(streamer.viewer_count || 0).toLocaleString('ru-RU')} зрителей</small>}
+        </div>
+        <div className="social-links">
+          {links.map(([label, url]) => <a key={label} href={url} target="_blank" rel="noreferrer">{label} <ExternalLink size={12} /></a>)}
+        </div>
+      </div>
+      {streamer.live && (
+        <div className="twitch-embed-grid">
+          <iframe title="Стрим RavshanN" src={`https://player.twitch.tv/?channel=ravshann&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen />
+          <iframe title="Чат RavshanN" src={`https://www.twitch.tv/embed/ravshann/chat?parent=${encodeURIComponent(parent)}&darkpopout`} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin, streamer }) {
   const [category, setCategory] = useState('Все');
   const [watchedOnly, setWatchedOnly] = useState(false);
   const [visibleStatuses, setVisibleStatuses] = useState(['approved']);
@@ -646,6 +685,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
 
   return (
     <main className="main-content">
+      <StreamerHero streamer={streamer} />
       <section className="page-heading">
         <div>
           <div className="eyebrow">
@@ -1000,10 +1040,12 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
   const [url, setUrl] = useState('');
   const [category, setCategory] = useState('');
   const [comment, setComment] = useState('');
+  const [movie, setMovie] = useState({ title: '', year: '', studio: '', rating: '', url: '' });
   const [error, setError] = useState('');
   const [sentId, setSentId] = useState(null);
   const count = recentSubmissionCount(state.videos, actor.id);
   const youtubeId = parseYouTubeId(url);
+  const trailerCategory = /трейлер|фильм|сериал/i.test(category);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -1016,7 +1058,12 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
     if (count >= state.settings.dailyLimit) return setError(`Достигнут лимит: ${state.settings.dailyLimit} отправки за 24 часа.`);
     setSubmitting(true);
     try {
-      const video = await onSubmit({ url, category, comment: comment.trim() });
+      const movieDetails = trailerCategory
+        ? [movie.title && `Фильм: ${movie.title}`, movie.year && `Год: ${movie.year}`, movie.studio && `Студия: ${movie.studio}`, movie.rating && `Рейтинг: ${movie.rating}`, movie.url && `Кинопоиск: ${movie.url}`].filter(Boolean).join(' · ')
+        : '';
+      const wish = [comment.trim(), movieDetails].filter(Boolean).join('\n');
+      if (wish.length > state.settings.commentLimit) return setError(`Пожелание и данные фильма должны занимать не более ${state.settings.commentLimit} символов.`);
+      const video = await onSubmit({ url, category, comment: wish });
       setSentId(video.id);
       notify('Видео добавлено в очередь модерации');
     } catch (submissionError) {
@@ -1079,15 +1126,25 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
             </select>
           </label>
           <label>
-            Комментарий модератору <span>необязательно</span>
+            Пожелание Равшану <span>необязательно, будет видно на сайте</span>
             <textarea
               maxLength={state.settings.commentLimit}
               value={comment}
               onChange={(event) => setComment(event.target.value)}
-              placeholder="Почему это видео стоит посмотреть на стриме?"
+              placeholder="Что именно посмотреть или на что обратить внимание?"
             />
           </label>
           <div className="counter">{comment.length}/{state.settings.commentLimit}</div>
+          {trailerCategory && (
+            <div className="movie-fields">
+              <div className="panel-kicker">ДАННЫЕ ФИЛЬМА · НЕОБЯЗАТЕЛЬНО</div>
+              <label>Название<input value={movie.title} onChange={(event) => setMovie({ ...movie, title: event.target.value })} /></label>
+              <label>Год<input inputMode="numeric" maxLength="4" value={movie.year} onChange={(event) => setMovie({ ...movie, year: event.target.value.replace(/\D/g, '') })} /></label>
+              <label>Кинокомпания / студия<input value={movie.studio} onChange={(event) => setMovie({ ...movie, studio: event.target.value })} /></label>
+              <label>Рейтинг<input placeholder="например, 7.8" value={movie.rating} onChange={(event) => setMovie({ ...movie, rating: event.target.value })} /></label>
+              <label className="movie-url">Ссылка на Кинопоиск<input type="url" placeholder="https://www.kinopoisk.ru/film/..." value={movie.url} onChange={(event) => setMovie({ ...movie, url: event.target.value })} /></label>
+            </div>
+          )}
           {error && <div className="form-error" role="alert">{error}</div>}
           <button className="primary-btn full" type="submit" disabled={submitting}>
             {submitting ? 'Получаем данные YouTube…' : 'Проверить и отправить'} <ArrowUpRight size={15} />
@@ -1556,6 +1613,14 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
             <input type="checkbox" checked={Boolean(settings.allowSelfVote)} onChange={(event) => setSettings({ ...settings, allowSelfVote: event.target.checked })} />
             Разрешить голосовать за собственные видео
           </label>
+          <h3>Социальные сети Равшана</h3>
+          {[
+            ['twitch', 'Twitch'], ['youtube', 'YouTube'], ['telegram', 'Telegram'], ['vk', 'VK'],
+          ].map(([key, label]) => (
+            <label key={key}>{label}
+              <input type="url" value={settings.socials?.[key] || ''} placeholder="https://..." onChange={(event) => setSettings({ ...settings, socials: { ...(settings.socials || {}), [key]: event.target.value } })} />
+            </label>
+          ))}
           <button
             className="primary-btn"
             onClick={async () => {
@@ -1576,6 +1641,37 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
           </button>
         </section>
       </div>
+      <section className="panel owner-panel users-panel">
+        <div className="panel-head"><h2>Пользователи</h2><span className="panel-kicker">{state.userStats?.length || 0} АККАУНТОВ</span></div>
+        <div className="users-table-wrap">
+          <table className="users-table">
+            <thead><tr><th>Пользователь</th><th>Роль</th><th>Всего</th><th>На рассмотрении</th><th>Одобрено</th><th>Отказано</th><th>Отсмотрено</th><th>Комментарии</th><th>Последний вход</th></tr></thead>
+            <tbody>{(state.userStats || []).map((item) => (
+              <tr key={item.user.id}>
+                <td><span className="user-cell"><Avatar small src={item.user.avatar_url} name={item.user.display_name} /><b>{item.user.display_name || item.user.login}</b></span></td>
+                <td>{ROLE_LABELS[item.user.role] || item.user.role}</td><td>{item.total}</td><td>{item.pending}</td><td>{item.approved}</td><td>{item.rejected}</td><td>{item.watched}</td><td>{item.comments}</td>
+                <td>{item.last_login_at ? new Date(item.last_login_at).toLocaleString('ru-RU') : '—'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </section>
+      <section className="panel owner-panel users-panel">
+        <div className="panel-head"><h2>Все действия пользователей</h2><span className="panel-kicker">ПОСЛЕДНИЕ {state.auditRecords?.length || 0}</span></div>
+        <div className="users-table-wrap">
+          <table className="users-table audit-table">
+            <thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>ID</th><th>Детали</th></tr></thead>
+            <tbody>{(state.auditRecords || []).map((entry) => (
+              <tr key={entry.id}>
+                <td>{new Date(entry.created_at).toLocaleString('ru-RU')}</td>
+                <td>{entry.actor?.display_name || entry.actor?.login || 'Система'}</td>
+                <td><b>{entry.action}</b></td><td>{entry.target_type}</td><td>{entry.target_id}</td>
+                <td>{entry.metadata && JSON.stringify(entry.metadata) !== '{}' ? JSON.stringify(entry.metadata) : '—'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </section>
     </main>
   );
 }
@@ -1877,7 +1973,7 @@ function App() {
     }));
   };
   let page;
-  if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
+  if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} streamer={state.streamer} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} onAccess={openAuth} />;
@@ -1885,7 +1981,7 @@ function App() {
   else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (['rules', 'privacy', 'terms'].includes(route)) page = <LegalView kind={route} />;
-  else page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
+  else page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} streamer={state.streamer} />;
 
   return (
     <div className="app-shell">

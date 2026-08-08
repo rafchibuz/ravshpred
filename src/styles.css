@@ -206,6 +206,35 @@
 .legal-hero h1 { margin: 7px 0 7px; font-size: clamp(27px, 4vw, 38px); letter-spacing: -.045em; }
 .legal-hero p { max-width: 680px; margin: 0 0 11px; color: #aaa3af; font-size: 12px; line-height: 1.55; }
 .legal-hero small { color: #756f7b; font-size: 9px; }
+
+.streamer-hero { margin-bottom: 24px; overflow: hidden; border: 1px solid #332d3b; border-radius: 13px; background: radial-gradient(circle at 90% 0, rgba(145,70,240,.18), transparent 40%), #17151b; }
+.streamer-hero.is-live { border-color: rgba(255,63,94,.55); box-shadow: 0 0 35px rgba(255,35,75,.08); }
+.streamer-summary { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 15px; padding: 18px 20px; }
+.streamer-summary > .avatar { width: 58px; height: 58px; }
+.streamer-summary h2 { margin: 4px 0; font-size: 24px; }
+.streamer-summary p { margin: 0; color: #aaa3af; font-size: 11px; }
+.streamer-summary small { display: block; margin-top: 7px; color: #d4ccd8; font-size: 10px; }
+.stream-state { display: inline-flex; align-items: center; gap: 6px; color: #87808d; font-size: 8px; font-weight: 800; letter-spacing: .12em; }
+.stream-state i { width: 7px; height: 7px; border-radius: 50%; background: #79727e; }
+.is-live .stream-state { color: #ff7188; }.is-live .stream-state i { background: #ff3658; box-shadow: 0 0 0 5px rgba(255,54,88,.12); }
+.social-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.social-links a { display: inline-flex; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid #3a3441; border-radius: 7px; color: #c6becb; font-size: 9px; text-decoration: none; }
+.social-links a:hover { border-color: #9149d8; color: white; }
+.twitch-embed-grid { display: grid; grid-template-columns: minmax(0,1fr) 340px; gap: 1px; background: #302b35; }
+.twitch-embed-grid iframe { width: 100%; height: 480px; border: 0; background: #0e0e10; }
+.viewer-wish { display: flex; align-items: flex-start; gap: 6px; margin: 9px 0 0; padding: 8px 9px; border-left: 2px solid #9149d8; border-radius: 0 5px 5px 0; background: rgba(145,73,216,.08); color: #aaa2b1; font-size: 9px; line-height: 1.4; white-space: pre-line; }
+.audit-table td:last-child { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.viewer-wish svg { flex: 0 0 auto; margin-top: 1px; color: #b96cff; }
+.users-panel { margin-top: 16px; }
+.users-table-wrap { overflow-x: auto; }
+.users-table { width: 100%; border-collapse: collapse; font-size: 9px; white-space: nowrap; }
+.users-table th, .users-table td { padding: 10px 9px; border-bottom: 1px solid #2b2830; text-align: left; color: #948d9a; }
+.users-table th { color: #69636f; font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.user-cell { display: inline-flex; align-items: center; gap: 7px; color: #eee8f2; }
+.settings-panel h3 { margin: 11px 0 0; font-size: 11px; }
+.movie-fields { display: grid; grid-template-columns: 1fr 110px; gap: 10px; margin-top: 4px; padding: 14px; border: 1px solid #37313e; border-radius: 8px; background: #141218; }
+.movie-fields .panel-kicker, .movie-fields .movie-url { grid-column: 1 / -1; }
+.movie-fields label { margin: 0; }
 .legal-sections { display: grid; gap: 12px; }
 .legal-sections .panel { padding: 22px; }
 .legal-sections h2 { margin: 0 0 13px; font-size: 16px; }
@@ -222,5 +251,11 @@
   .comment-form > .avatar { display: none; }
   .comment-form .primary-btn { width: 44px; min-height: 44px; }
   .legal-hero { padding: 20px 16px; }
+  .streamer-summary { grid-template-columns: auto 1fr; padding: 15px; }
+  .streamer-summary > .avatar { width: 46px; height: 46px; }
+  .social-links { grid-column: 1 / -1; justify-content: flex-start; }
+  .twitch-embed-grid { grid-template-columns: 1fr; }
+  .twitch-embed-grid iframe { height: auto; aspect-ratio: 16 / 9; }
+  .twitch-embed-grid iframe:last-child { height: 420px; aspect-ratio: auto; }
   .legal-sections .panel { padding: 18px 15px; }
 }

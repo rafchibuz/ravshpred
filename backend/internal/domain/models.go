@@ -103,10 +103,43 @@ type AuditEntry struct {
 }
 
 type GlobalSettings struct {
-	SubmissionDailyLimit int  `json:"submission_daily_limit"`
-	CommentLimit         int  `json:"submission_comment_limit"`
-	PublicFeedEnabled    bool `json:"public_feed_enabled"`
-	AllowSelfVote        bool `json:"allow_self_vote"`
+	SubmissionDailyLimit int         `json:"submission_daily_limit"`
+	CommentLimit         int         `json:"submission_comment_limit"`
+	PublicFeedEnabled    bool        `json:"public_feed_enabled"`
+	AllowSelfVote        bool        `json:"allow_self_vote"`
+	Socials              SocialLinks `json:"socials"`
+}
+
+type SocialLinks struct {
+	Twitch   string `json:"twitch"`
+	YouTube  string `json:"youtube"`
+	Telegram string `json:"telegram"`
+	VK       string `json:"vk"`
+}
+
+type StreamerStatus struct {
+	Login        string      `json:"login"`
+	DisplayName  string      `json:"display_name"`
+	AvatarURL    string      `json:"avatar_url"`
+	Live         bool        `json:"live"`
+	Title        string      `json:"title,omitempty"`
+	GameName     string      `json:"game_name,omitempty"`
+	ViewerCount  int         `json:"viewer_count,omitempty"`
+	StartedAt    *time.Time  `json:"started_at,omitempty"`
+	ThumbnailURL string      `json:"thumbnail_url,omitempty"`
+	Socials      SocialLinks `json:"socials"`
+}
+
+type UserStats struct {
+	User      User       `json:"user"`
+	LastLogin *time.Time `json:"last_login_at,omitempty"`
+	Total     int        `json:"total"`
+	Pending   int        `json:"pending"`
+	Approved  int        `json:"approved"`
+	Rejected  int        `json:"rejected"`
+	Watched   int        `json:"watched"`
+	Deleted   int        `json:"deleted"`
+	Comments  int        `json:"comments"`
 }
 
 func Can(role Role, action string) bool {

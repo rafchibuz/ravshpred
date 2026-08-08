@@ -118,9 +118,10 @@ function normalizeNewsPost(post) {
 }
 
 export async function loadWorkspace(role) {
-  const [categoriesResponse, newsResponse] = await Promise.all([
+  const [categoriesResponse, newsResponse, streamerResponse] = await Promise.all([
     request('/categories'),
     request('/news?limit=50'),
+    request('/streamer'),
   ]);
   const categoryRecords = categoriesResponse.data || [];
   const requests = [request('/videos?limit=100')];
@@ -145,6 +146,7 @@ export async function loadWorkspace(role) {
     categories: categoryRecords.map((item) => item.name),
     videos: [...videosById.values()],
     news: (newsResponse.data || []).map(normalizeNewsPost),
+    streamer: streamerResponse.data || null,
   };
   if (['user', 'moderator', 'owner'].includes(role)) {
     const notifications = await request('/notifications?limit=100');
@@ -158,10 +160,11 @@ export async function loadWorkspace(role) {
     }));
   }
   if (role === 'owner') {
-    const [moderators, audit, settings] = await Promise.all([
+    const [moderators, audit, settings, users] = await Promise.all([
       request('/owner/moderators'),
       request('/owner/audit?limit=100'),
       request('/owner/settings'),
+      request('/owner/users?limit=100'),
     ]);
     result.moderatorRecords = moderators.data || [];
     result.moderators = result.moderatorRecords.map((user) => user.login || user.display_name);
@@ -175,7 +178,9 @@ export async function loadWorkspace(role) {
       commentLimit: settings.data.submission_comment_limit,
       publicFeed: settings.data.public_feed_enabled,
       allowSelfVote: settings.data.allow_self_vote,
+      socials: settings.data.socials || {},
     };
+    result.userStats = users.data || [];
   }
   return result;
 }
@@ -257,6 +262,7 @@ export function updateSettings(settings) {
       submission_comment_limit: settings.commentLimit,
       public_feed_enabled: settings.publicFeed,
       allow_self_vote: Boolean(settings.allowSelfVote),
+      socials: settings.socials || {},
     },
   });
 }

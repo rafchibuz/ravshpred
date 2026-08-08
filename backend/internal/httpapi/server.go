@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ravshann/predlozhka/backend/internal/config"
@@ -22,11 +23,14 @@ import (
 )
 
 type Server struct {
-	cfg     config.Config
-	store   store.Store
-	youtube youtube.Client
-	twitch  *twitch.Client
-	logger  *slog.Logger
+	cfg                config.Config
+	store              store.Store
+	youtube            youtube.Client
+	twitch             *twitch.Client
+	logger             *slog.Logger
+	streamerMu         sync.Mutex
+	streamerCache      domain.StreamerStatus
+	streamerCacheUntil time.Time
 }
 
 type actorContext struct {
@@ -55,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health/ready", s.ready)
 	mux.HandleFunc("GET /api/categories", s.categories)
 	mux.HandleFunc("GET /api/videos", s.feed)
+	mux.HandleFunc("GET /api/streamer", s.streamer)
 	mux.HandleFunc("GET /api/news", s.news)
 	mux.HandleFunc("POST /api/news/{id}/comments", s.createNewsComment)
 	mux.HandleFunc("DELETE /api/news/comments/{id}", s.deleteNewsComment)
@@ -77,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/owner/categories/{id}", s.deleteCategory)
 	mux.HandleFunc("POST /api/owner/moderators", s.assignModerator)
 	mux.HandleFunc("GET /api/owner/moderators", s.listModerators)
+	mux.HandleFunc("GET /api/owner/users", s.listUsers)
 	mux.HandleFunc("DELETE /api/owner/moderators/{id}", s.removeModerator)
 	mux.HandleFunc("GET /api/owner/audit", s.audit)
 	mux.HandleFunc("GET /api/owner/settings", s.settings)
@@ -142,6 +148,41 @@ func (s *Server) categories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) streamer(w http.ResponseWriter, r *http.Request) {
+	s.streamerMu.Lock()
+	defer s.streamerMu.Unlock()
+	if time.Now().Before(s.streamerCacheUntil) {
+		writeJSON(w, http.StatusOK, map[string]any{"data": s.streamerCache})
+		return
+	}
+	settings, err := s.store.GetSettings(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	result := domain.StreamerStatus{Login: "ravshann", DisplayName: "RavshanN", Socials: settings.Socials}
+	if !s.twitch.Configured() {
+		s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(time.Minute)
+		writeJSON(w, http.StatusOK, map[string]any{"data": result})
+		return
+	}
+	user, stream, err := s.twitch.StreamByLogin(r.Context(), "ravshann")
+	if err != nil {
+		s.logger.Warn("twitch streamer status unavailable", "error", err)
+		s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(30*time.Second)
+		writeJSON(w, http.StatusOK, map[string]any{"data": result})
+		return
+	}
+	result.Login, result.DisplayName, result.AvatarURL = user.Login, user.DisplayName, user.AvatarURL
+	if stream != nil {
+		result.Live, result.Title, result.GameName = true, stream.Title, stream.GameName
+		result.ViewerCount, result.StartedAt = stream.ViewerCount, &stream.StartedAt
+		result.ThumbnailURL = strings.ReplaceAll(strings.ReplaceAll(stream.ThumbnailURL, "{width}", "1280"), "{height}", "720")
+	}
+	s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(time.Minute)
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
 func (s *Server) news(w http.ResponseWriter, r *http.Request) {
@@ -626,6 +667,18 @@ func (s *Server) listModerators(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": users})
 }
 
+func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "manage") == nil {
+		return
+	}
+	items, err := s.store.ListUsersStats(r.Context(), intQuery(r, "limit", 100))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
 func (s *Server) removeModerator(w http.ResponseWriter, r *http.Request) {
 	actor := s.require(w, r, "manage")
 	if actor == nil {
@@ -672,7 +725,9 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.SubmissionDailyLimit < 1 || input.SubmissionDailyLimit > 20 ||
-		input.CommentLimit < 100 || input.CommentLimit > 2000 {
+		input.CommentLimit < 100 || input.CommentLimit > 2000 ||
+		!validOptionalURL(input.Socials.Twitch) || !validOptionalURL(input.Socials.YouTube) ||
+		!validOptionalURL(input.Socials.Telegram) || !validOptionalURL(input.Socials.VK) {
 		writeError(w, http.StatusBadRequest, "invalid_settings", "Настройки вне допустимого диапазона")
 		return
 	}
@@ -681,6 +736,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": input})
+}
+
+func validOptionalURL(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || strings.HasPrefix(value, "https://")
 }
 
 func (s *Server) actor(r *http.Request) (*actorContext, error) {

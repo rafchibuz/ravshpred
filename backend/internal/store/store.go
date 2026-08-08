@@ -77,6 +77,7 @@ type Store interface {
 	AssignModerator(context.Context, string, string) (domain.User, error)
 	RemoveModerator(context.Context, string, string) error
 	ListModerators(context.Context) ([]domain.User, error)
+	ListUsersStats(context.Context, int) ([]domain.UserStats, error)
 	ListNotifications(context.Context, string, int) ([]domain.Notification, error)
 	MarkNotificationRead(context.Context, string, string) error
 	MarkAllNotificationsRead(context.Context, string) error

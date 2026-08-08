@@ -23,6 +23,9 @@ import (
 //go:embed migrations/000002_news.sql
 var newsSchema string
 
+//go:embed migrations/000003_portal.sql
+var portalSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -45,6 +48,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, newsSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply news schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, portalSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply portal schema: %w", err)
 	}
 	return result, nil
 }
@@ -216,6 +223,9 @@ func (s *Store) CreateSubmission(ctx context.Context, input store.CreateSubmissi
 	if err != nil {
 		return domain.Video{}, err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'submit','submission',$2)`, input.AuthorID, id); err != nil {
+		return domain.Video{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Video{}, err
 	}
@@ -277,6 +287,9 @@ func (s *Store) Vote(ctx context.Context, submissionID, userID string, value int
 	}
 	var rating int64
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(value),0) FROM votes WHERE submission_id::text=$1`, submissionID).Scan(&rating); err != nil {
+		return 0, 0, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'vote','submission',$2,jsonb_build_object('value',$3))`, userID, submissionID, current); err != nil {
 		return 0, 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -518,6 +531,40 @@ func (s *Store) ListModerators(ctx context.Context) ([]domain.User, error) {
 	return result, rows.Err()
 }
 
+func (s *Store) ListUsersStats(ctx context.Context, limit int) ([]domain.UserStats, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),u.display_name,
+			u.avatar_url,u.role::text,u.created_at,u.last_login_at,
+			count(s.id) FILTER (WHERE s.deleted_at IS NULL),
+			count(s.id) FILTER (WHERE s.status='pending' AND s.deleted_at IS NULL),
+			count(s.id) FILTER (WHERE s.status='approved' AND s.deleted_at IS NULL),
+			count(s.id) FILTER (WHERE s.status='rejected' AND s.deleted_at IS NULL),
+			count(sm.submission_id) FILTER (WHERE s.deleted_at IS NULL),
+			count(s.id) FILTER (WHERE s.deleted_at IS NOT NULL),
+			(SELECT count(*) FROM news_comments nc WHERE nc.author_id=u.id)
+		FROM users u
+		LEFT JOIN submissions s ON s.author_id=u.id
+		LEFT JOIN streamer_marks sm ON sm.submission_id=s.id
+		WHERE u.deleted_at IS NULL
+		GROUP BY u.id
+		ORDER BY u.created_at DESC LIMIT $1`, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.UserStats, 0)
+	for rows.Next() {
+		var item domain.UserStats
+		if err := rows.Scan(&item.User.ID, &item.User.TwitchID, &item.User.Login, &item.User.Display,
+			&item.User.AvatarURL, &item.User.Role, &item.User.CreatedAt, &item.LastLogin,
+			&item.Total, &item.Pending, &item.Approved, &item.Rejected, &item.Watched, &item.Deleted, &item.Comments); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) ListNotifications(ctx context.Context, userID string, limit int) ([]domain.Notification, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id::text,type,title,body,read_at,created_at
@@ -673,6 +720,9 @@ func (s *Store) CreateNewsComment(ctx context.Context, postID, authorID, body st
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.NewsComment{}, store.ErrNotFound
 	}
+	if err == nil {
+		_, err = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'comment','news_post',$2)`, authorID, postID)
+	}
 	return comment, err
 }
 
@@ -686,7 +736,8 @@ func (s *Store) DeleteNewsComment(ctx context.Context, commentID, actorID string
 	if command.RowsAffected() == 0 {
 		return store.ErrNotFound
 	}
-	return nil
+	_, err = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'delete_comment','news_comment',$2)`, actorID, commentID)
+	return err
 }
 
 func (s *Store) MarkNotificationRead(ctx context.Context, userID, notificationID string) error {
@@ -746,6 +797,7 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 		CommentLimit:         500,
 		PublicFeedEnabled:    true,
 		AllowSelfVote:        false,
+		Socials:              domain.SocialLinks{Twitch: "https://www.twitch.tv/ravshann"},
 	}
 	rows, err := s.pool.Query(ctx, `SELECT key,value::text FROM system_settings`)
 	if err != nil {
@@ -766,6 +818,14 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 			result.PublicFeedEnabled, _ = strconv.ParseBool(value)
 		case "allow_self_vote":
 			result.AllowSelfVote, _ = strconv.ParseBool(value)
+		case "social_twitch":
+			_ = json.Unmarshal([]byte(value), &result.Socials.Twitch)
+		case "social_youtube":
+			_ = json.Unmarshal([]byte(value), &result.Socials.YouTube)
+		case "social_telegram":
+			_ = json.Unmarshal([]byte(value), &result.Socials.Telegram)
+		case "social_vk":
+			_ = json.Unmarshal([]byte(value), &result.Socials.VK)
 		}
 	}
 	return result, rows.Err()
@@ -782,6 +842,10 @@ func (s *Store) UpdateSettings(ctx context.Context, settings domain.GlobalSettin
 		"submission_comment_limit": settings.CommentLimit,
 		"public_feed_enabled":      settings.PublicFeedEnabled,
 		"allow_self_vote":          settings.AllowSelfVote,
+		"social_twitch":            settings.Socials.Twitch,
+		"social_youtube":           settings.Socials.YouTube,
+		"social_telegram":          settings.Socials.Telegram,
+		"social_vk":                settings.Socials.VK,
 	}
 	for key, value := range values {
 		encoded, _ := json.Marshal(value)
@@ -810,17 +874,21 @@ func mustJSON(value any) string {
 func (s *Store) UpsertTwitchUser(ctx context.Context, twitchID, login, display, avatar string) (domain.User, error) {
 	var result domain.User
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO users(twitch_id,twitch_login,display_name,avatar_url)
-		VALUES($1,$2,$3,$4)
+		INSERT INTO users(twitch_id,twitch_login,display_name,avatar_url,last_login_at)
+		VALUES($1,$2,$3,$4,now())
 		ON CONFLICT(twitch_id) DO UPDATE SET
 			twitch_login=excluded.twitch_login,
 			display_name=excluded.display_name,
 			avatar_url=excluded.avatar_url,
+			last_login_at=now(),
 			updated_at=now()
 		RETURNING id::text,COALESCE(twitch_id,''),COALESCE(twitch_login,''),
 			display_name,avatar_url,role::text,created_at`,
 		twitchID, login, display, avatar).
 		Scan(&result.ID, &result.TwitchID, &result.Login, &result.Display, &result.AvatarURL, &result.Role, &result.CreatedAt)
+	if err == nil {
+		_, _ = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'login','user',$1::text)`, result.ID)
+	}
 	return result, err
 }
 
