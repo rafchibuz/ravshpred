@@ -61,6 +61,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/categories", s.categories)
 	mux.HandleFunc("GET /api/videos", s.feed)
 	mux.HandleFunc("GET /api/streamer", s.streamer)
+	mux.HandleFunc("GET /api/twitch/clips", s.twitchClips)
 	mux.HandleFunc("GET /api/news", s.news)
 	mux.HandleFunc("POST /api/news/{id}/comments", s.createNewsComment)
 	mux.HandleFunc("DELETE /api/news/comments/{id}", s.deleteNewsComment)
@@ -93,6 +94,63 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/owner/news", s.createNewsPost)
 	mux.HandleFunc("DELETE /api/owner/news/{id}", s.deleteNewsPost)
 	return s.middleware(mux)
+}
+
+func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
+	if !s.twitch.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "twitch_not_configured", "Twitch API не настроен")
+		return
+	}
+	channel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
+	logins := []string{"ravshann", "ravshanbtw"}
+	if channel != "" && channel != "all" {
+		if channel != "ravshann" && channel != "ravshanbtw" {
+			writeError(w, http.StatusBadRequest, "invalid_channel", "Неизвестный Twitch-канал")
+			return
+		}
+		logins = []string{channel}
+	}
+
+	now := time.Now().UTC()
+	var startedAt, endedAt *time.Time
+	switch r.URL.Query().Get("period") {
+	case "", "week":
+		value := now.AddDate(0, 0, -7)
+		startedAt, endedAt = &value, &now
+	case "today":
+		value := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		startedAt, endedAt = &value, &now
+	case "month":
+		value := now.AddDate(0, -1, 0)
+		startedAt, endedAt = &value, &now
+	case "year":
+		value := now.AddDate(-1, 0, 0)
+		startedAt, endedAt = &value, &now
+	case "all":
+	case "custom":
+		from, fromErr := time.Parse("2006-01-02", r.URL.Query().Get("from"))
+		to, toErr := time.Parse("2006-01-02", r.URL.Query().Get("to"))
+		if fromErr != nil || toErr != nil || to.Before(from) {
+			writeError(w, http.StatusBadRequest, "invalid_period", "Укажите корректный период")
+			return
+		}
+		to = to.Add(24*time.Hour - time.Nanosecond)
+		startedAt, endedAt = &from, &to
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_period", "Неизвестный период")
+		return
+	}
+
+	items := make([]twitch.Clip, 0, 100)
+	for _, login := range logins {
+		clips, err := s.twitch.ClipsByLogin(r.Context(), login, startedAt, endedAt)
+		if err != nil {
+			s.logger.Warn("twitch clips unavailable", "login", login, "error", err)
+			continue
+		}
+		items = append(items, clips...)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
 }
 
 func (s *Server) middleware(next http.Handler) http.Handler {

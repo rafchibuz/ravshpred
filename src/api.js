@@ -218,6 +218,15 @@ export function loadStreamer() {
   return request('/streamer').then((payload) => payload.data || null);
 }
 
+export function loadTwitchClips({ channel = 'all', period = 'week', from = '', to = '' } = {}) {
+  const params = new URLSearchParams({ channel, period });
+  if (period === 'custom') {
+    params.set('from', from);
+    params.set('to', to);
+  }
+  return request(`/twitch/clips?${params}`).then((payload) => payload.data || []);
+}
+
 export function vote(videoId, value) {
   return request(`/videos/${videoId}/vote`, { method: 'PUT', body: { value } });
 }

@@ -29,6 +29,21 @@ type Stream struct {
 	ThumbnailURL string    `json:"thumbnail_url"`
 }
 
+type Clip struct {
+	ID              string    `json:"id"`
+	URL             string    `json:"url"`
+	EmbedURL        string    `json:"embed_url"`
+	BroadcasterName string    `json:"broadcaster_name"`
+	CreatorName     string    `json:"creator_name"`
+	VideoID         string    `json:"video_id"`
+	Title           string    `json:"title"`
+	ViewCount       int       `json:"view_count"`
+	CreatedAt       time.Time `json:"created_at"`
+	ThumbnailURL    string    `json:"thumbnail_url"`
+	Duration        float64   `json:"duration"`
+	VODOffset       *int      `json:"vod_offset"`
+}
+
 type Client struct {
 	clientID     string
 	clientSecret string
@@ -176,4 +191,71 @@ func (c *Client) StreamByLogin(ctx context.Context, login string) (User, *Stream
 		return users.Data[0], nil, nil
 	}
 	return users.Data[0], &streams.Data[0], nil
+}
+
+func (c *Client) ClipsByLogin(ctx context.Context, login string, startedAt, endedAt *time.Time) ([]Clip, error) {
+	if !c.Configured() {
+		return nil, errors.New("twitch is not configured")
+	}
+	values := url.Values{"client_id": {c.clientID}, "client_secret": {c.clientSecret}, "grant_type": {"client_credentials"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/token", strings.NewReader(values.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("twitch app token: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("twitch app token returned %s", response.Status)
+	}
+	var token struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&token); err != nil {
+		return nil, err
+	}
+
+	get := func(endpoint string, target any) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		req.Header.Set("Client-Id", c.clientID)
+		response, err := c.http.Do(req)
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return fmt.Errorf("twitch helix returned %s", response.Status)
+		}
+		return json.NewDecoder(response.Body).Decode(target)
+	}
+	var users struct {
+		Data []User `json:"data"`
+	}
+	if err := get("https://api.twitch.tv/helix/users?login="+url.QueryEscape(login), &users); err != nil {
+		return nil, err
+	}
+	if len(users.Data) != 1 {
+		return nil, errors.New("twitch streamer not found")
+	}
+	query := url.Values{"broadcaster_id": {users.Data[0].ID}, "first": {"100"}}
+	if startedAt != nil {
+		query.Set("started_at", startedAt.UTC().Format(time.RFC3339))
+	}
+	if endedAt != nil {
+		query.Set("ended_at", endedAt.UTC().Format(time.RFC3339))
+	}
+	var clips struct {
+		Data []Clip `json:"data"`
+	}
+	if err := get("https://api.twitch.tv/helix/clips?"+query.Encode(), &clips); err != nil {
+		return nil, err
+	}
+	return clips.Data, nil
 }

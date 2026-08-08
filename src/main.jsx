@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   Bell,
   Check,
+  Clapperboard,
   Clock3,
   ExternalLink,
   Eye,
@@ -419,6 +420,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
   const nav = [
     { key: 'home', label: 'Главная', icon: Home },
     { key: 'feed', label: 'Предложка', icon: Play },
+    { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
     { key: 'news', label: 'Новости', icon: Newspaper },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
     ...(can(role, 'view_profile')
@@ -431,7 +433,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
     ...(can(role, 'manage') ? [{ key: 'owner', label: 'Управление', icon: Settings }] : []),
   ];
 
-  const primaryKeys = new Set(['home', 'feed', 'news', 'submit']);
+  const primaryKeys = new Set(['home', 'feed', 'clips', 'news', 'submit']);
   const go = (key) => {
     navigate(key);
     setMobileOpen(false);
@@ -787,6 +789,116 @@ function StreamerHome({ streamer }) {
         <LinkDirectory title="Нарезки со стримов" links={clipsLinks} compact />
       </div>
       <LinkDirectory title="Поддержка" links={supportLinks} />
+    </main>
+  );
+}
+
+function TwitchClipModal({ clip, onClose }) {
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.body.classList.add('modal-open');
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.classList.remove('modal-open');
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [onClose]);
+  const parent = window.location.hostname || 'localhost';
+  const separator = clip.embed_url.includes('?') ? '&' : '?';
+  return (
+    <div className="clip-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="clip-modal" role="dialog" aria-modal="true" aria-labelledby="clip-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="clip-modal-close" onClick={onClose} aria-label="Закрыть клип"><X size={25} /></button>
+        <div className="clip-player-wrap">
+          <iframe
+            title={clip.title}
+            src={`${clip.embed_url}${separator}parent=${encodeURIComponent(parent)}&autoplay=true`}
+            allow="autoplay; fullscreen"
+            allowFullScreen
+          />
+        </div>
+        <footer>
+          <div><h2 id="clip-modal-title">{clip.title}</h2><p>{clip.broadcaster_name} · клип создал {clip.creator_name}</p></div>
+          <span><Eye size={15} /> {Number(clip.view_count || 0).toLocaleString('ru-RU')}</span>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function TwitchClipsView() {
+  const [filters, setFilters] = useState({ channel: 'all', period: 'week', from: '', to: '' });
+  const [sort, setSort] = useState('popular');
+  const [clips, setClips] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (filters.period === 'custom' && (!filters.from || !filters.to)) return undefined;
+    let active = true;
+    setLoading(true);
+    setError('');
+    api.loadTwitchClips(filters)
+      .then((items) => { if (active) setClips(items); })
+      .catch((requestError) => { if (active) setError(requestError.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [filters]);
+
+  const sorted = useMemo(() => [...clips].sort((a, b) => (
+    sort === 'new'
+      ? new Date(b.created_at) - new Date(a.created_at)
+      : Number(b.view_count) - Number(a.view_count)
+  )), [clips, sort]);
+  const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
+
+  return (
+    <main className="main-content clips-page">
+      <section className="page-heading clips-heading">
+        <div>
+          <div className="eyebrow"><Clapperboard size={13} /> TWITCH-КЛИПЫ</div>
+          <h1>Топ клипы RavshanN</h1>
+          <p>Клипы обоих каналов напрямую из Twitch — без загрузки файлов на сайт</p>
+        </div>
+        <div className="clips-heading-total"><strong>{sorted.length}</strong><span>клипов найдено</span></div>
+      </section>
+      <section className="clips-filters" aria-label="Фильтры клипов">
+        <div className="clips-filter-group">
+          <span>Канал</span>
+          {[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'RavshanBTW']].map(([value, label]) => (
+            <button key={value} className={filters.channel === value ? 'selected' : ''} onClick={() => updateFilter('channel', value)}>{label}</button>
+          ))}
+        </div>
+        <div className="clips-filter-group clips-periods">
+          <span>Период</span>
+          {[['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время'], ['custom', 'Свой период']].map(([value, label]) => (
+            <button key={value} className={filters.period === value ? 'selected' : ''} onClick={() => updateFilter('period', value)}>{label}</button>
+          ))}
+        </div>
+        {filters.period === 'custom' && <div className="clips-date-range">
+          <label>От <input type="date" value={filters.from} onChange={(event) => updateFilter('from', event.target.value)} /></label>
+          <label>До <input type="date" value={filters.to} onChange={(event) => updateFilter('to', event.target.value)} /></label>
+        </div>}
+        <label className="clips-sort">Сортировка<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label>
+      </section>
+      {loading && <div className="clips-state"><span className="clips-loader" />Загружаем клипы Twitch…</div>}
+      {!loading && error && <div className="clips-state error"><Clapperboard size={28} /><strong>Не удалось получить клипы</strong><span>{error}</span></div>}
+      {!loading && !error && !sorted.length && <div className="clips-state"><Clapperboard size={28} /><strong>За этот период клипов нет</strong><span>Выберите другой канал или период.</span></div>}
+      {!loading && !error && sorted.length > 0 && <section className="clips-grid">
+        {sorted.map((clip) => <button key={clip.id} className="clip-card" onClick={() => setSelected(clip)} aria-label={`Смотреть клип «${clip.title}»`}>
+          <div className="clip-thumbnail">
+            <img src={clip.thumbnail_url} alt="" loading="lazy" />
+            <span className="clip-play"><Play size={22} fill="currentColor" /></span>
+            <span className="clip-duration">{Number(clip.duration || 0).toFixed(1).replace('.0', '')} с</span>
+            <span className="clip-views"><Eye size={12} /> {Number(clip.view_count || 0).toLocaleString('ru-RU')}</span>
+          </div>
+          <div className="clip-card-body"><h2>{clip.title}</h2><div><span>{clip.broadcaster_name}</span><time>{new Date(clip.created_at).toLocaleDateString('ru-RU')}</time></div><small>Автор клипа: {clip.creator_name}</small></div>
+        </button>)}
+      </section>}
+      {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
     </main>
   );
 }
@@ -2316,6 +2428,7 @@ function App() {
   };
   let page;
   if (route === 'home') page = <StreamerHome streamer={state.streamer} />;
+  else if (route === 'clips') page = <TwitchClipsView />;
   else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
