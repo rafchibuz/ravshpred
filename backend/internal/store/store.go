@@ -39,7 +39,23 @@ type CreateSubmissionInput struct {
 	AuthorID         string
 	CategoryID       string
 	Comment          string
+	KinopoiskURL     string
+	MovieTitle       string
+	MovieYear        *int
+	MovieStudio      string
+	MovieRating      *float64
 	DailyLimit       int
+}
+
+type UpdateMovieInput struct {
+	SubmissionID string
+	ModeratorID  string
+	KinopoiskURL string
+	MovieTitle   string
+	MovieYear    *int
+	MovieStudio  string
+	MovieRating  *float64
+	Version      int
 }
 
 type DecideInput struct {
@@ -70,6 +86,7 @@ type Store interface {
 	Decide(context.Context, DecideInput) (domain.Video, error)
 	SetWatched(context.Context, string, string, bool) error
 	UpdateVideoCategory(context.Context, string, string, string) error
+	UpdateMovieMetadata(context.Context, UpdateMovieInput) (domain.Video, error)
 	DeleteVideo(context.Context, string, string) error
 
 	CreateCategory(context.Context, string, string, string) (domain.Category, error)

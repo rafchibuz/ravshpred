@@ -81,6 +81,11 @@ export function normalizeVideo(video) {
     version: Number(video.version) || 1,
     submitterComment: video.submitter_comment || '',
     moderatorComment: video.moderator_comment || '',
+    kinopoiskUrl: video.kinopoisk_url || '',
+    movieTitle: video.movie_title || '',
+    movieYear: video.movie_year ?? '',
+    movieStudio: video.movie_studio || '',
+    movieRating: video.movie_rating ?? '',
     tone: 'purple',
     votes: {},
   };
@@ -173,12 +178,17 @@ export async function loadWorkspace(role) {
       const actor = entry.actor?.display_name || entry.actor?.login || 'Система';
       return `${actor}: ${entry.action} · ${entry.target_type} #${entry.target_id}`;
     });
+    const legacySocials = settings.data.socials || {};
+    const legacySocialLinks = Object.entries(legacySocials)
+      .filter(([, url]) => url)
+      .map(([name, url]) => ({ name: name === 'vk' ? 'VK' : `${name.charAt(0).toUpperCase()}${name.slice(1)}`, url }));
     result.settings = {
       dailyLimit: settings.data.submission_daily_limit,
       commentLimit: settings.data.submission_comment_limit,
       publicFeed: settings.data.public_feed_enabled,
       allowSelfVote: settings.data.allow_self_vote,
-      socials: settings.data.socials || {},
+      socials: legacySocials,
+      socialLinks: settings.data.social_links?.length ? settings.data.social_links : legacySocialLinks,
     };
     result.userStats = users.data || [];
   }
@@ -228,6 +238,20 @@ export function setVideoCategory(videoId, categoryId) {
   });
 }
 
+export function setMovieMetadata(videoId, movie, version) {
+  return request(`/moderation/submissions/${videoId}/movie`, {
+    method: 'PATCH',
+    body: {
+      kinopoisk_url: movie.url?.trim() || '',
+      movie_title: movie.title?.trim() || '',
+      movie_year: movie.year ? Number(movie.year) : null,
+      movie_studio: movie.studio?.trim() || '',
+      movie_rating: movie.rating !== '' && movie.rating != null ? Number(movie.rating) : null,
+      version,
+    },
+  }).then((payload) => normalizeVideo(payload.data));
+}
+
 export function createCategory(name) {
   return request('/owner/categories', {
     method: 'POST',
@@ -267,6 +291,7 @@ export function updateSettings(settings) {
       public_feed_enabled: settings.publicFeed,
       allow_self_vote: Boolean(settings.allowSelfVote),
       socials: settings.socials || {},
+      social_links: settings.socialLinks || [],
     },
   });
 }

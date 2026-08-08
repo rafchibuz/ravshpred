@@ -26,6 +26,9 @@ var newsSchema string
 //go:embed migrations/000003_portal.sql
 var portalSchema string
 
+//go:embed migrations/000004_movies.sql
+var moviesSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -52,6 +55,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, portalSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply portal schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, moviesSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply movies schema: %w", err)
 	}
 	return result, nil
 }
@@ -83,6 +90,7 @@ const videoSelect = `
 		s.id::text, s.youtube_id, s.youtube_url, s.title, s.channel_title, s.thumbnail_url,
 		s.duration_seconds, s.view_count, s.youtube_like_count, s.status::text,
 		s.submitter_comment, s.moderator_comment, s.version, s.created_at, s.updated_at,
+		s.kinopoisk_url, s.movie_title, s.movie_year, s.movie_studio, s.movie_rating,
 		u.id::text, COALESCE(u.twitch_id,''), COALESCE(u.twitch_login,''), u.display_name,
 		u.avatar_url, u.role::text, u.created_at,
 		c.id::text, c.slug, c.name, c.is_system, c.sort_order, c.created_at,
@@ -211,11 +219,13 @@ func (s *Store) CreateSubmission(ctx context.Context, input store.CreateSubmissi
 		INSERT INTO submissions (
 			youtube_id, youtube_url, title, channel_title, thumbnail_url,
 			duration_seconds, view_count, youtube_like_count, metadata_fetched_at,
-			author_id, category_id, submitter_comment
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,$10,$11)
+			author_id, category_id, submitter_comment,
+			kinopoisk_url, movie_title, movie_year, movie_studio, movie_rating
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING id::text`,
 		input.YouTubeID, input.YouTubeURL, input.Title, input.ChannelTitle, input.ThumbnailURL,
 		input.DurationSeconds, input.ViewCount, input.YouTubeLikeCount, input.AuthorID, input.CategoryID, input.Comment,
+		input.KinopoiskURL, input.MovieTitle, input.MovieYear, input.MovieStudio, input.MovieRating,
 	).Scan(&id)
 	if isUniqueViolation(err) {
 		return domain.Video{}, store.ErrDuplicate
@@ -420,6 +430,33 @@ func (s *Store) UpdateVideoCategory(ctx context.Context, submissionID, categoryI
 	}
 	_, err = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'category_change','submission',$2,jsonb_build_object('category_id',$3))`, actorID, submissionID, categoryID)
 	return err
+}
+
+func (s *Store) UpdateMovieMetadata(ctx context.Context, input store.UpdateMovieInput) (domain.Video, error) {
+	command, err := s.pool.Exec(ctx, `
+		UPDATE submissions SET kinopoisk_url=$3,movie_title=$4,movie_year=$5,
+			movie_studio=$6,movie_rating=$7,updated_at=now(),version=version+1
+		WHERE id::text=$1 AND version=$2 AND deleted_at IS NULL`,
+		input.SubmissionID, input.Version, input.KinopoiskURL, input.MovieTitle,
+		input.MovieYear, input.MovieStudio, input.MovieRating)
+	if err != nil {
+		return domain.Video{}, err
+	}
+	if command.RowsAffected() != 1 {
+		var exists bool
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM submissions WHERE id::text=$1 AND deleted_at IS NULL)`, input.SubmissionID).Scan(&exists); err != nil {
+			return domain.Video{}, err
+		}
+		if exists {
+			return domain.Video{}, store.ErrVersionConflict
+		}
+		return domain.Video{}, store.ErrNotFound
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'movie_metadata_update','submission',$2)`, input.ModeratorID, input.SubmissionID)
+	if err != nil {
+		return domain.Video{}, err
+	}
+	return s.getVideo(ctx, input.SubmissionID, input.ModeratorID)
 }
 
 func (s *Store) DeleteVideo(ctx context.Context, submissionID, actorID string) error {
@@ -798,7 +835,9 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 		PublicFeedEnabled:    true,
 		AllowSelfVote:        false,
 		Socials:              domain.SocialLinks{Twitch: "https://www.twitch.tv/ravshann"},
+		SocialItems:          []domain.SocialItem{{Name: "Twitch", URL: "https://www.twitch.tv/ravshann"}},
 	}
+	var hasSocialItems bool
 	rows, err := s.pool.Query(ctx, `SELECT key,value::text FROM system_settings`)
 	if err != nil {
 		return result, err
@@ -826,6 +865,18 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 			_ = json.Unmarshal([]byte(value), &result.Socials.Telegram)
 		case "social_vk":
 			_ = json.Unmarshal([]byte(value), &result.Socials.VK)
+		case "social_links":
+			if json.Unmarshal([]byte(value), &result.SocialItems) == nil {
+				hasSocialItems = true
+			}
+		}
+	}
+	if !hasSocialItems {
+		result.SocialItems = nil
+		for _, item := range []domain.SocialItem{{"Twitch", result.Socials.Twitch}, {"YouTube", result.Socials.YouTube}, {"Telegram", result.Socials.Telegram}, {"VK", result.Socials.VK}} {
+			if item.URL != "" {
+				result.SocialItems = append(result.SocialItems, item)
+			}
 		}
 	}
 	return result, rows.Err()
@@ -846,6 +897,7 @@ func (s *Store) UpdateSettings(ctx context.Context, settings domain.GlobalSettin
 		"social_youtube":           settings.Socials.YouTube,
 		"social_telegram":          settings.Socials.Telegram,
 		"social_vk":                settings.Socials.VK,
+		"social_links":             settings.SocialItems,
 	}
 	for key, value := range values {
 		encoded, _ := json.Marshal(value)
@@ -991,6 +1043,7 @@ func scanVideo(row scanner, video *domain.Video) error {
 		&video.ID, &video.YouTubeID, &video.YouTubeURL, &video.Title, &video.ChannelTitle, &video.ThumbnailURL,
 		&video.DurationSeconds, &video.ViewCount, &video.YouTubeLikeCount, &status,
 		&video.SubmitterComment, &video.ModeratorComment, &video.Version, &video.CreatedAt, &video.UpdatedAt,
+		&video.KinopoiskURL, &video.MovieTitle, &video.MovieYear, &video.MovieStudio, &video.MovieRating,
 		&video.Author.ID, &video.Author.TwitchID, &video.Author.Login, &video.Author.Display,
 		&video.Author.AvatarURL, &role, &video.Author.CreatedAt,
 		&video.Category.ID, &video.Category.Slug, &video.Category.Name, &video.Category.IsSystem,

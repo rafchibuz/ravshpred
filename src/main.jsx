@@ -97,7 +97,7 @@ function makeInitialState() {
   return {
     categories: ['Без категории', 'Смешное', 'Трейлеры', 'Фильмы и сериалы', 'Разоблачения'],
     moderators: ['moderator_live', 'lexapro_tv', 'shadowmff'],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {} },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [] },
     streamer: null,
     userStats: [],
     videos: [
@@ -332,7 +332,7 @@ function emptyServerState() {
     news: [],
     audit: [],
     auditRecords: [],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {} },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [] },
     streamer: null,
     userStats: [],
   };
@@ -586,6 +586,17 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
           <span>{new Date(video.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
         <div className="channel">YouTube: {video.channel}</div>
+        {(video.movieTitle || video.movieYear || video.movieStudio || video.movieRating !== '' || video.kinopoiskUrl) && (
+          <div className="movie-card-info">
+            {video.movieTitle && <strong>{video.movieTitle}</strong>}
+            <div>
+              {video.movieYear && <span>{video.movieYear}</span>}
+              {video.movieStudio && <span>{video.movieStudio}</span>}
+              {video.movieRating !== '' && <span>Рейтинг: {video.movieRating}</span>}
+            </div>
+            {video.kinopoiskUrl && <a href={video.kinopoiskUrl} target="_blank" rel="noreferrer">Открыть на Кинопоиске <ExternalLink size={11} /></a>}
+          </div>
+        )}
         {video.submitterComment && <p className="viewer-wish"><MessageCircle size={12} /> {video.submitterComment}</p>}
         <div className="metrics">
           <div className="youtube-metrics" aria-label="Метрики YouTube">
@@ -635,12 +646,12 @@ function StreamerHome({ streamer }) {
   if (!streamer) return null;
   const parent = window.location.hostname || 'localhost';
   const socials = streamer.socials || {};
-  const links = [
-    ['Twitch', socials.twitch || 'https://www.twitch.tv/ravshann'],
-    ['YouTube', socials.youtube],
-    ['Telegram', socials.telegram],
-    ['VK', socials.vk],
-  ].filter(([, url]) => url);
+  const links = (streamer.social_links?.length ? streamer.social_links : [
+    { name: 'Twitch', url: socials.twitch || 'https://www.twitch.tv/ravshann' },
+    { name: 'YouTube', url: socials.youtube },
+    { name: 'Telegram', url: socials.telegram },
+    { name: 'VK', url: socials.vk },
+  ]).filter((item) => item.url);
   return (
     <main className="main-content stream-home">
       <section className={`streamer-hero streamer-cinema ${streamer.live ? 'is-live' : ''}`}>
@@ -682,10 +693,16 @@ function StreamerHome({ streamer }) {
         </div>
       </div>}
       </section>
-      <section className="stream-socials">
-        <div><span className="panel-kicker">СОЦИАЛЬНЫЕ СЕТИ</span><h2>RavshanN в интернете</h2></div>
-        <div className="social-links">
-          {links.map(([label, url]) => <a key={label} href={url} target="_blank" rel="noreferrer">{label} <ExternalLink size={12} /></a>)}
+      <section className="stream-socials social-directory-section">
+        <header><h2>Соцсети</h2><span>{String(links.length).padStart(2, '0')}</span></header>
+        <div className="social-directory">
+          {links.map((item, index) => (
+            <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <div><strong>{item.name}</strong><small>{item.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</small></div>
+              <ArrowUpRight size={16} />
+            </a>
+          ))}
         </div>
       </section>
     </main>
@@ -1095,16 +1112,13 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
     setError('');
     if (!youtubeId) return setError('Проверьте ссылку: нужен корректный URL YouTube.');
     if (!category) return setError('Выберите категорию.');
+    if (trailerCategory && !/^https:\/\/(?:www\.)?kinopoisk\.ru\//i.test(movie.url.trim())) return setError('Для фильма добавьте корректную ссылку на Кинопоиск.');
     if (isDuplicate(state.videos, youtubeId)) return setError('Это видео уже есть в предложке.');
     if (count >= state.settings.dailyLimit) return setError(`Достигнут лимит: ${state.settings.dailyLimit} отправки за 24 часа.`);
     setSubmitting(true);
     try {
-      const movieDetails = trailerCategory
-        ? [movie.title && `Фильм: ${movie.title}`, movie.year && `Год: ${movie.year}`, movie.studio && `Студия: ${movie.studio}`, movie.rating && `Рейтинг: ${movie.rating}`, movie.url && `Кинопоиск: ${movie.url}`].filter(Boolean).join(' · ')
-        : '';
-      const wish = [comment.trim(), movieDetails].filter(Boolean).join('\n');
-      if (wish.length > state.settings.commentLimit) return setError(`Пожелание и данные фильма должны занимать не более ${state.settings.commentLimit} символов.`);
-      const video = await onSubmit({ url, category, comment: wish });
+      if (comment.trim().length > state.settings.commentLimit) return setError(`Пожелание должно занимать не более ${state.settings.commentLimit} символов.`);
+      const video = await onSubmit({ url, category, comment: comment.trim(), movie: trailerCategory ? movie : null });
       setSentId(video.id);
       notify('Видео добавлено в очередь модерации');
     } catch (submissionError) {
@@ -1156,16 +1170,26 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
             </span>
           </div>
           <label>
-            Ссылка на видео
-            <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." inputMode="url" />
-          </label>
-          <label>
             Категория
             <select value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="">Выберите категорию</option>
               {state.categories.map((item) => <option key={item}>{item}</option>)}
             </select>
           </label>
+          {trailerCategory ? (
+            <div className="movie-links-grid">
+              <label>Трейлер
+                <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Ссылка на YouTube-трейлер" inputMode="url" />
+              </label>
+              <label>Кинопоиск
+                <input type="url" placeholder="https://www.kinopoisk.ru/film/..." value={movie.url} onChange={(event) => setMovie({ ...movie, url: event.target.value })} />
+              </label>
+            </div>
+          ) : (
+            <label>Ссылка на видео
+              <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." inputMode="url" />
+            </label>
+          )}
           <label>
             Пожелание Равшану <span>необязательно, будет видно на сайте</span>
             <textarea
@@ -1183,7 +1207,6 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
               <label>Год<input inputMode="numeric" maxLength="4" value={movie.year} onChange={(event) => setMovie({ ...movie, year: event.target.value.replace(/\D/g, '') })} /></label>
               <label>Кинокомпания / студия<input value={movie.studio} onChange={(event) => setMovie({ ...movie, studio: event.target.value })} /></label>
               <label>Рейтинг<input placeholder="например, 7.8" value={movie.rating} onChange={(event) => setMovie({ ...movie, rating: event.target.value })} /></label>
-              <label className="movie-url">Ссылка на Кинопоиск<input type="url" placeholder="https://www.kinopoisk.ru/film/..." value={movie.url} onChange={(event) => setMovie({ ...movie, url: event.target.value })} /></label>
             </div>
           )}
           {error && <div className="form-error" role="alert">{error}</div>}
@@ -1309,7 +1332,38 @@ function NotificationView({ notifications, markAllRead, markRead }) {
   );
 }
 
-function ModerationView({ state, role, onDecision, onWatched, onDelete, onCategoryChange, notify }) {
+function ModeratorMovieEditor({ video, onSave, notify }) {
+  const [movie, setMovie] = useState({ url: '', title: '', year: '', studio: '', rating: '' });
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setMovie({
+    url: video.kinopoiskUrl || '', title: video.movieTitle || '', year: video.movieYear || '',
+    studio: video.movieStudio || '', rating: video.movieRating ?? '',
+  }), [video.id, video.kinopoiskUrl, video.movieTitle, video.movieYear, video.movieStudio, video.movieRating]);
+  const relevant = /трейлер|фильм|сериал/i.test(video.category) || video.kinopoiskUrl || video.movieTitle;
+  if (!relevant) return null;
+  return (
+    <section className="moderator-movie-editor">
+      <div><span className="panel-kicker">КАРТОЧКА ФИЛЬМА</span><small>Можно заполнить или исправить данные пользователя</small></div>
+      <div className="movie-links-grid">
+        <label>Кинопоиск<input type="url" value={movie.url} placeholder="https://www.kinopoisk.ru/film/..." onChange={(event) => setMovie({ ...movie, url: event.target.value })} /></label>
+        <label>Название<input value={movie.title} onChange={(event) => setMovie({ ...movie, title: event.target.value })} /></label>
+      </div>
+      <div className="movie-fields moderator-movie-fields">
+        <label>Год<input inputMode="numeric" value={movie.year} onChange={(event) => setMovie({ ...movie, year: event.target.value.replace(/\D/g, '').slice(0, 4) })} /></label>
+        <label>Кинокомпания / студия<input value={movie.studio} onChange={(event) => setMovie({ ...movie, studio: event.target.value })} /></label>
+        <label>Рейтинг<input type="number" min="0" max="10" step="0.1" value={movie.rating} onChange={(event) => setMovie({ ...movie, rating: event.target.value })} /></label>
+      </div>
+      <button className="outline-btn" disabled={saving} onClick={async () => {
+        setSaving(true);
+        try { await onSave(video.id, movie, video.version); notify('Данные фильма сохранены'); }
+        catch (error) { notify(error.message); }
+        finally { setSaving(false); }
+      }}>{saving ? 'Сохраняем…' : 'Сохранить данные фильма'}</button>
+    </section>
+  );
+}
+
+function ModerationView({ state, role, onDecision, onWatched, onDelete, onCategoryChange, onMovieUpdate, notify }) {
   const [tab, setTab] = useState('pending');
   const items = state.videos.filter((video) => video.status === tab);
   const [selectedId, setSelectedId] = useState(items[0]?.id);
@@ -1399,6 +1453,7 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
                 <span>Отправитель <b>{selected.author}</b></span>
               </div>
             </div>
+            <ModeratorMovieEditor video={selected} onSave={onMovieUpdate} notify={notify} />
             {selected.status === 'pending' && (
               <>
                 <label className="moderation-comment">
@@ -1655,13 +1710,20 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
             Разрешить голосовать за собственные видео
           </label>
           <h3>Социальные сети Равшана</h3>
-          {[
-            ['twitch', 'Twitch'], ['youtube', 'YouTube'], ['telegram', 'Telegram'], ['vk', 'VK'],
-          ].map(([key, label]) => (
-            <label key={key}>{label}
-              <input type="url" value={settings.socials?.[key] || ''} placeholder="https://..." onChange={(event) => setSettings({ ...settings, socials: { ...(settings.socials || {}), [key]: event.target.value } })} />
-            </label>
-          ))}
+          <div className="social-settings-list">
+            {(settings.socialLinks || []).map((item, index) => (
+              <div className="social-setting-row" key={index}>
+                <label>Название
+                  <input value={item.name} maxLength={40} placeholder="Telegram" onChange={(event) => setSettings({ ...settings, socialLinks: settings.socialLinks.map((link, linkIndex) => linkIndex === index ? { ...link, name: event.target.value } : link) })} />
+                </label>
+                <label>Ссылка
+                  <input type="url" value={item.url} placeholder="https://..." onChange={(event) => setSettings({ ...settings, socialLinks: settings.socialLinks.map((link, linkIndex) => linkIndex === index ? { ...link, url: event.target.value } : link) })} />
+                </label>
+                <button type="button" className="danger-btn" onClick={() => setSettings({ ...settings, socialLinks: settings.socialLinks.filter((_, linkIndex) => linkIndex !== index) })}>Удалить</button>
+              </div>
+            ))}
+            <button type="button" className="ghost-btn" onClick={() => setSettings({ ...settings, socialLinks: [...(settings.socialLinks || []), { name: '', url: '' }] })}><Plus size={14} /> Добавить соцсеть</button>
+          </div>
           <button
             className="primary-btn"
             onClick={async () => {
@@ -1919,16 +1981,27 @@ function App() {
       notify(error.message);
     }
   };
-  const submitVideo = async ({ url, category, comment }) => {
+  const submitVideo = async ({ url, category, comment, movie }) => {
     const categoryRecord = state.categoryRecords?.find((item) => item.name === category);
     if (!apiReady || !categoryRecord) throw new Error('API пока недоступен — повторите через несколько секунд');
     const video = await api.createSubmission({
       url,
       category_id: categoryRecord.id,
       comment,
+      kinopoisk_url: movie?.url?.trim() || '',
+      movie_title: movie?.title?.trim() || '',
+      movie_year: movie?.year ? Number(movie.year) : null,
+      movie_studio: movie?.studio?.trim() || '',
+      movie_rating: movie?.rating !== '' && movie?.rating != null ? Number(movie.rating) : null,
     });
     setState((current) => ({ ...current, videos: [video, ...current.videos] }));
     return video;
+  };
+  const updateMovieMetadata = async (id, movie, version) => {
+    if (!apiReady) throw new Error('API пока недоступен');
+    const updated = await api.setMovieMetadata(id, movie, version);
+    setState((current) => ({ ...current, videos: current.videos.map((video) => video.id === id ? updated : video) }));
+    return updated;
   };
   const addCategory = async (name) => {
     if (!apiReady) throw new Error('API пока недоступен');
@@ -2029,7 +2102,7 @@ function App() {
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'notifications') page = can(role, 'view_profile') ? <NotificationView notifications={state.notifications} markAllRead={markAllNotifications} markRead={markNotification} /> : <AccessDenied role={role} onAccess={openAuth} />;
-  else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} onMovieUpdate={updateMovieMetadata} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (['rules', 'privacy', 'terms'].includes(route)) page = <LegalView kind={route} />;
   else page = <StreamerHome streamer={state.streamer} />;

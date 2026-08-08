@@ -4,6 +4,7 @@ dist/
 .tmp-pdf/
 tmp/
 .vite/
+.gocache/
 .env
 .env.*
 !.env.example

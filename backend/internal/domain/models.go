@@ -57,6 +57,11 @@ type Video struct {
 	Status           SubmissionStatus `json:"status"`
 	SubmitterComment string           `json:"submitter_comment"`
 	ModeratorComment string           `json:"moderator_comment,omitempty"`
+	KinopoiskURL     string           `json:"kinopoisk_url,omitempty"`
+	MovieTitle       string           `json:"movie_title,omitempty"`
+	MovieYear        *int             `json:"movie_year,omitempty"`
+	MovieStudio      string           `json:"movie_studio,omitempty"`
+	MovieRating      *float64         `json:"movie_rating,omitempty"`
 	Watched          bool             `json:"watched"`
 	Rating           int64            `json:"rating"`
 	UserVote         int              `json:"user_vote,omitempty"`
@@ -108,6 +113,12 @@ type GlobalSettings struct {
 	PublicFeedEnabled    bool        `json:"public_feed_enabled"`
 	AllowSelfVote        bool        `json:"allow_self_vote"`
 	Socials              SocialLinks `json:"socials"`
+	SocialItems          []SocialItem `json:"social_links"`
+}
+
+type SocialItem struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 type SocialLinks struct {
@@ -128,6 +139,7 @@ type StreamerStatus struct {
 	StartedAt    *time.Time  `json:"started_at,omitempty"`
 	ThumbnailURL string      `json:"thumbnail_url,omitempty"`
 	Socials      SocialLinks `json:"socials"`
+	SocialItems  []SocialItem `json:"social_links"`
 }
 
 type UserStats struct {

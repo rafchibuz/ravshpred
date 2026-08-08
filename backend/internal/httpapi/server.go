@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}", s.moderate)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/watched", s.watched)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/category", s.videoCategory)
+	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/movie", s.videoMovie)
 	mux.HandleFunc("DELETE /api/moderation/submissions/{id}", s.deleteVideo)
 	mux.HandleFunc("POST /api/owner/categories", s.createCategory)
 	mux.HandleFunc("DELETE /api/owner/categories/{id}", s.deleteCategory)
@@ -162,7 +164,7 @@ func (s *Server) streamer(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	result := domain.StreamerStatus{Login: "ravshann", DisplayName: "RavshanN", Socials: settings.Socials}
+	result := domain.StreamerStatus{Login: "ravshann", DisplayName: "RavshanN", Socials: settings.Socials, SocialItems: settings.SocialItems}
 	if !s.twitch.Configured() {
 		s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(time.Minute)
 		writeJSON(w, http.StatusOK, map[string]any{"data": result})
@@ -392,9 +394,14 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		URL        string `json:"url"`
-		CategoryID string `json:"category_id"`
-		Comment    string `json:"comment"`
+		URL          string   `json:"url"`
+		CategoryID   string   `json:"category_id"`
+		Comment      string   `json:"comment"`
+		KinopoiskURL string   `json:"kinopoisk_url"`
+		MovieTitle   string   `json:"movie_title"`
+		MovieYear    *int     `json:"movie_year"`
+		MovieStudio  string   `json:"movie_studio"`
+		MovieRating  *float64 `json:"movie_rating"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -404,8 +411,35 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
+	categories, err := s.store.ListCategories(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	movieCategory := false
+	categoryExists := false
+	for _, category := range categories {
+		if category.ID == input.CategoryID {
+			categoryExists = true
+			name := strings.ToLower(category.Name)
+			movieCategory = strings.Contains(name, "трейлер") || strings.Contains(name, "фильм") || strings.Contains(name, "сериал")
+			break
+		}
+	}
+	if !categoryExists {
+		writeError(w, http.StatusBadRequest, "invalid_category", "Выберите существующую категорию")
+		return
+	}
+	if movieCategory && strings.TrimSpace(input.KinopoiskURL) == "" {
+		writeError(w, http.StatusBadRequest, "kinopoisk_required", "Для фильма нужна ссылка на Кинопоиск")
+		return
+	}
 	if len([]rune(input.Comment)) > settings.CommentLimit {
 		writeError(w, http.StatusBadRequest, "comment_too_long", "Комментарий превышает допустимую длину")
+		return
+	}
+	if !validMovieMetadata(input.KinopoiskURL, input.MovieTitle, input.MovieYear, input.MovieStudio, input.MovieRating) {
+		writeError(w, http.StatusBadRequest, "invalid_movie_metadata", "Проверьте ссылку на Кинопоиск и данные фильма")
 		return
 	}
 	id, err := domain.ParseYouTubeID(input.URL)
@@ -430,6 +464,11 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		AuthorID:         actor.User.ID,
 		CategoryID:       input.CategoryID,
 		Comment:          input.Comment,
+		KinopoiskURL:     strings.TrimSpace(input.KinopoiskURL),
+		MovieTitle:       strings.TrimSpace(input.MovieTitle),
+		MovieYear:        input.MovieYear,
+		MovieStudio:      strings.TrimSpace(input.MovieStudio),
+		MovieRating:      input.MovieRating,
 		DailyLimit:       settings.SubmissionDailyLimit,
 	})
 	if err != nil {
@@ -589,6 +628,38 @@ func (s *Server) videoCategory(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) videoMovie(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "moderate")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		KinopoiskURL string   `json:"kinopoisk_url"`
+		MovieTitle   string   `json:"movie_title"`
+		MovieYear    *int     `json:"movie_year"`
+		MovieStudio  string   `json:"movie_studio"`
+		MovieRating  *float64 `json:"movie_rating"`
+		Version      int      `json:"version"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Version < 1 || !validMovieMetadata(input.KinopoiskURL, input.MovieTitle, input.MovieYear, input.MovieStudio, input.MovieRating) {
+		writeError(w, http.StatusBadRequest, "invalid_movie_metadata", "Проверьте ссылку на Кинопоиск и данные фильма")
+		return
+	}
+	video, err := s.store.UpdateMovieMetadata(r.Context(), store.UpdateMovieInput{
+		SubmissionID: r.PathValue("id"), ModeratorID: actor.User.ID, Version: input.Version,
+		KinopoiskURL: strings.TrimSpace(input.KinopoiskURL), MovieTitle: strings.TrimSpace(input.MovieTitle),
+		MovieYear: input.MovieYear, MovieStudio: strings.TrimSpace(input.MovieStudio), MovieRating: input.MovieRating,
+	})
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": video})
+}
+
 func (s *Server) deleteVideo(w http.ResponseWriter, r *http.Request) {
 	actor := s.require(w, r, "moderate")
 	if actor == nil {
@@ -724,8 +795,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	validSocials := len(input.SocialItems) <= 12
+	for _, item := range input.SocialItems {
+		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" {
+			validSocials = false
+		}
+	}
 	if input.SubmissionDailyLimit < 1 || input.SubmissionDailyLimit > 20 ||
 		input.CommentLimit < 100 || input.CommentLimit > 2000 ||
+		!validSocials ||
 		!validOptionalURL(input.Socials.Twitch) || !validOptionalURL(input.Socials.YouTube) ||
 		!validOptionalURL(input.Socials.Telegram) || !validOptionalURL(input.Socials.VK) {
 		writeError(w, http.StatusBadRequest, "invalid_settings", "Настройки вне допустимого диапазона")
@@ -741,6 +819,28 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 func validOptionalURL(value string) bool {
 	value = strings.TrimSpace(value)
 	return value == "" || strings.HasPrefix(value, "https://")
+}
+
+func validMovieMetadata(kinopoiskURL, title string, year *int, studio string, rating *float64) bool {
+	if kinopoiskURL != "" && !validKinopoiskURL(kinopoiskURL) {
+		return false
+	}
+	if len([]rune(strings.TrimSpace(title))) > 200 || len([]rune(strings.TrimSpace(studio))) > 200 {
+		return false
+	}
+	if year != nil && (*year < 1888 || *year > 2100) {
+		return false
+	}
+	return rating == nil || (*rating >= 0 && *rating <= 10)
+}
+
+func validKinopoiskURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "kinopoisk.ru" || strings.HasSuffix(host, ".kinopoisk.ru")
 }
 
 func (s *Server) actor(r *http.Request) (*actorContext, error) {
