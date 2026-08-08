@@ -702,6 +702,7 @@ function StreamerHome({ streamer }) {
   }, []);
   if (!streamer) return null;
   const parent = window.location.hostname || 'localhost';
+  const activeTwitchLogin = streamer.login || 'ravshann';
   const socials = streamer.socials || {};
   const links = (streamer.social_links?.length ? streamer.social_links : [
     { name: 'Twitch', url: socials.twitch || 'https://www.twitch.tv/ravshann', section: 'primary' },
@@ -719,7 +720,7 @@ function StreamerHome({ streamer }) {
       {streamer.live && (
         <div className="twitch-live-shell">
           <div className="twitch-player-column">
-            <iframe title="Стрим RavshanN" src={`https://player.twitch.tv/?channel=ravshann&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen />
+            <iframe title={`Стрим ${streamer.display_name || activeTwitchLogin}`} src={`https://player.twitch.tv/?channel=${encodeURIComponent(activeTwitchLogin)}&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen />
             <div className="stream-info-bar">
               <div className="stream-channel-info">
                 <Avatar src={streamer.avatar_url} name={streamer.display_name || 'RavshanN'} />
@@ -732,7 +733,7 @@ function StreamerHome({ streamer }) {
               </div>
             </div>
           </div>
-          <iframe className="twitch-chat-frame" title="Чат RavshanN" src={`https://www.twitch.tv/embed/ravshann/chat?parent=${encodeURIComponent(parent)}&darkpopout`} />
+          <iframe className="twitch-chat-frame" title={`Чат ${streamer.display_name || activeTwitchLogin}`} src={`https://www.twitch.tv/embed/${encodeURIComponent(activeTwitchLogin)}/chat?parent=${encodeURIComponent(parent)}&darkpopout`} />
         </div>
       )}
       {!streamer.live && (

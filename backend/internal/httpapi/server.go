@@ -170,20 +170,35 @@ func (s *Server) streamer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"data": result})
 		return
 	}
-	user, stream, err := s.twitch.StreamByLogin(r.Context(), "ravshann")
-	if err != nil {
-		s.logger.Warn("twitch streamer status unavailable", "error", err)
-		s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(30*time.Second)
-		writeJSON(w, http.StatusOK, map[string]any{"data": result})
-		return
-	}
-	result.Login, result.DisplayName, result.AvatarURL = user.Login, user.DisplayName, user.AvatarURL
-	if stream != nil {
+	var fallbackUser *twitch.User
+	failedLookups := 0
+	for _, login := range []string{"ravshann", "ravshanbtw"} {
+		user, stream, lookupErr := s.twitch.StreamByLogin(r.Context(), login)
+		if lookupErr != nil {
+			failedLookups++
+			s.logger.Warn("twitch streamer status unavailable", "login", login, "error", lookupErr)
+			continue
+		}
+		if fallbackUser == nil {
+			fallbackUser = &user
+		}
+		if stream == nil {
+			continue
+		}
+		result.Login, result.DisplayName, result.AvatarURL = user.Login, user.DisplayName, user.AvatarURL
 		result.Live, result.Title, result.GameName = true, stream.Title, stream.GameName
 		result.ViewerCount, result.StartedAt = stream.ViewerCount, &stream.StartedAt
 		result.ThumbnailURL = strings.ReplaceAll(strings.ReplaceAll(stream.ThumbnailURL, "{width}", "1280"), "{height}", "720")
+		break
 	}
-	s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(time.Minute)
+	if !result.Live && fallbackUser != nil {
+		result.Login, result.DisplayName, result.AvatarURL = fallbackUser.Login, fallbackUser.DisplayName, fallbackUser.AvatarURL
+	}
+	cacheDuration := time.Minute
+	if failedLookups == 2 {
+		cacheDuration = 30 * time.Second
+	}
+	s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(cacheDuration)
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
