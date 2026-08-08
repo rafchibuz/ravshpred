@@ -5,7 +5,7 @@
 .sidebar-collapse { width: 31px; height: 31px; flex: 0 0 31px; display: grid; place-items: center; margin: -6px -4px 0 8px; border: 1px solid #36313d; border-radius: 7px; color: #aaa2b1; background: #18151d; }
 .sidebar.is-collapsed { width: 72px; flex-basis: 72px; padding-inline: 8px; }
 .sidebar.is-collapsed .logo, .sidebar.is-collapsed .role-label, .sidebar.is-collapsed .account-card span { display: none; }
-.sidebar.is-collapsed .sidebar-top { justify-content: center; padding: 0; }
+.sidebar.is-collapsed .sidebar-top { justify-content: center; padding: 0; margin-bottom: 12px; }
 .sidebar.is-collapsed .sidebar-collapse { margin: 0; }
 .sidebar.is-collapsed .side-nav button { justify-content: center; padding: 0; }
 .sidebar.is-collapsed .side-nav button span { display: none; }
