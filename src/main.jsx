@@ -11,6 +11,7 @@ import {
   FileText,
   Home,
   LayoutGrid,
+  Lightbulb,
   Link2,
   List,
   Menu,
@@ -413,7 +414,8 @@ function Logo() {
   );
 }
 
-function Sidebar({ route, navigate, role, unread, actor }) {
+function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
   const nav = [
     { key: 'home', label: 'Главная', icon: Home },
     { key: 'feed', label: 'Предложка', icon: Play },
@@ -429,26 +431,46 @@ function Sidebar({ route, navigate, role, unread, actor }) {
     ...(can(role, 'manage') ? [{ key: 'owner', label: 'Управление', icon: Settings }] : []),
   ];
 
+  const primaryKeys = new Set(['home', 'feed', 'news', 'submit']);
+  const go = (key) => {
+    navigate(key);
+    setMobileOpen(false);
+  };
+
+  const renderNavButton = ({ key, label, icon: Icon, count }) => (
+    <button
+      key={key}
+      className={`${route === key ? 'active' : ''} ${primaryKeys.has(key) ? 'mobile-primary' : 'mobile-secondary'}`}
+      onClick={() => go(key)}
+      aria-current={route === key ? 'page' : undefined}
+      title={collapsed ? label : undefined}
+    >
+      <Icon size={16} />
+      <span>{label}</span>
+      {count > 0 && <b>{count}</b>}
+    </button>
+  );
+
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${collapsed ? 'is-collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
       <div className="sidebar-top">
         <Logo />
+        <button className="sidebar-collapse" onClick={onToggle} aria-label={collapsed ? 'Раскрыть боковую панель' : 'Скрыть боковую панель'} title={collapsed ? 'Раскрыть меню' : 'Скрыть меню'}>
+          <Menu size={17} />
+        </button>
       </div>
       <div className="role-label">{ROLE_LABELS[role].toUpperCase()}</div>
       <nav className="side-nav" aria-label="Основная навигация">
-        {nav.map(({ key, label, icon: Icon, count }) => (
-          <button
-            key={key}
-            className={route === key ? 'active' : ''}
-            onClick={() => navigate(key)}
-            aria-current={route === key ? 'page' : undefined}
-          >
-            <Icon size={16} />
-            <span>{label}</span>
-            {count > 0 && <b>{count}</b>}
-          </button>
-        ))}
+        {nav.map((item) => <React.Fragment key={item.key}>{renderNavButton(item)}</React.Fragment>)}
+        <button className="mobile-nav-more" onClick={() => setMobileOpen((value) => !value)} aria-expanded={mobileOpen}>
+          {mobileOpen ? <X size={16} /> : <Menu size={16} />}<span>Ещё</span>
+        </button>
       </nav>
+      {mobileOpen && (
+        <nav className="mobile-extra-nav" aria-label="Дополнительная навигация">
+          {nav.filter((item) => !primaryKeys.has(item.key)).map(renderNavButton)}
+        </nav>
+      )}
       <div className="side-bottom">
         <div className="account-card" aria-label={`Текущая роль: ${ROLE_LABELS[role]}`}>
           <Avatar small src={actor?.avatarUrl} name={actor?.name} />
@@ -490,7 +512,7 @@ function Topbar({ role, search, setSearch, navigate, openAuth, onSignOut, unread
       <div className="top-actions">
         {can(role, 'submit') && (
           <button className="outline-btn hide-mobile" onClick={() => navigate('submit')}>
-            <Plus size={15} /> Предложить видео
+            <Plus size={15} /> Предложить
           </button>
         )}
         {can(role, 'view_profile') && (
@@ -542,10 +564,13 @@ function AuthModal({ onContinue, onClose }) {
 
 function Thumb({ video, large = false }) {
   const status = video.status;
+  const sourceType = video.sourceType || 'youtube';
+  const isYouTube = sourceType === 'youtube';
+  const isIdea = video.contentKind === 'stream_idea';
   const fallbackThumbnail = video.thumbnailUrl || `https://i.ytimg.com/vi/${video.youtubeId}/hqdefault.jpg`;
   return (
     <div className={`thumb ${large ? 'thumb-large' : ''}`} style={{ background: tones[video.tone] || tones.purple }}>
-      <img
+      {isYouTube && <img
         className="youtube-thumb"
         src={`https://i.ytimg.com/vi/${video.youtubeId}/maxresdefault.jpg`}
         data-fallback={fallbackThumbnail}
@@ -559,7 +584,8 @@ function Thumb({ video, large = false }) {
             event.currentTarget.hidden = true;
           }
         }}
-      />
+      />}
+      {!isYouTube && <div className={`submission-thumb-symbol ${isIdea ? 'idea' : ''}`}>{isIdea ? <Lightbulb size={large ? 58 : 34} /> : <Link2 size={large ? 58 : 34} />}<strong>{isIdea ? 'ИДЕЯ ДЛЯ СТРИМА' : sourceType === 'short_video' ? 'TIKTOK / INSTAGRAM' : 'ДРУГАЯ ССЫЛКА'}</strong></div>}
       <div className="thumb-top">
         <span className={`mini-tag status-${status}`}>{STATUS_LABELS[status]?.toUpperCase() || 'ВИДЕО'}</span>
         {video.watched && (
@@ -568,8 +594,8 @@ function Thumb({ video, large = false }) {
           </span>
         )}
       </div>
-      <span className="duration">{video.duration}</span>
-      {large && (
+      {isYouTube && <span className="duration">{video.duration}</span>}
+      {large && !isIdea && (
         <span className="play">
           <Play size={23} fill="white" />
         </span>
@@ -583,7 +609,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
   const vote = video.userVote === 1 ? 'up' : video.userVote === -1 ? 'down' : null;
   return (
     <article className={`video-card ${list ? 'video-card-list' : ''}`}>
-      <button className="card-link" onClick={() => onOpen(video)} aria-label={`Открыть «${video.title}» на YouTube`}>
+      <button className="card-link" onClick={() => onOpen(video)} disabled={!video.sourceUrl && !video.youtubeUrl} aria-label={video.contentKind === 'stream_idea' ? `Идея «${video.title}»` : `Открыть «${video.title}»`}>
         <Thumb video={video} />
       </button>
       <div className="card-body">
@@ -594,7 +620,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
           <em>·</em>
           <span>{new Date(video.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
-        <div className="channel">YouTube: {video.channel}</div>
+        <div className="channel">{video.contentKind === 'stream_idea' ? 'Идея для стрима' : (video.sourceType || 'youtube') === 'youtube' ? `YouTube: ${video.channel}` : `${video.sourceType === 'short_video' ? 'TikTok / Instagram' : 'Источник'}: ${video.channel}`}</div>
         {(video.movieTitle || video.movieYear || video.movieStudio || video.movieRating !== '' || video.kinopoiskUrl) && (
           <div className="movie-card-info">
             {video.movieTitle && <strong>{video.movieTitle}</strong>}
@@ -608,10 +634,10 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
         )}
         {video.submitterComment && <p className="viewer-wish"><MessageCircle size={12} /> {video.submitterComment}</p>}
         <div className="metrics">
-          <div className="youtube-metrics" aria-label="Метрики YouTube">
+          {(video.sourceType || 'youtube') === 'youtube' && <div className="youtube-metrics" aria-label="Метрики YouTube">
             <span title="Просмотры на YouTube"><Eye size={12} /> {video.views}</span>
             <span title="Лайки на YouTube"><ThumbsUp size={12} /> {video.youtubeLikes ?? '—'}</span>
-          </div>
+          </div>}
           <div className="rating-control" aria-label={`Рейтинг сайта: ${totals.score}`}>
             <strong className={totals.score < 0 ? 'negative' : ''}>{totals.score > 0 ? `+${totals.score}` : totals.score}</strong>
             <button className={vote === 'up' ? 'voted' : ''} onClick={() => onVote(video.id, 'up')} aria-label="Поставить лайк">
@@ -766,6 +792,7 @@ function StreamerHome({ streamer }) {
 }
 
 function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin }) {
+  const [kind, setKind] = useState('all');
   const [category, setCategory] = useState('Все');
   const [watchedOnly, setWatchedOnly] = useState(false);
   const [visibleStatuses, setVisibleStatuses] = useState(['approved']);
@@ -787,6 +814,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
       .filter(
         (video) =>
           visibleStatuses.includes(video.status) &&
+          (kind === 'all' || (video.contentKind || 'video') === kind) &&
           (category === 'Все' || video.category === category) &&
           (!watchedOnly || video.watched) &&
           [video.title, video.author, video.category, video.channel].join(' ').toLowerCase().includes(query),
@@ -796,7 +824,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
         if (sort === 'Рейтингу') return voteTotals(b).score - voteTotals(a).score;
         return voteTotals(b).score - voteTotals(a).score;
       });
-  }, [videos, visibleStatuses, category, watchedOnly, sort, search]);
+  }, [videos, visibleStatuses, kind, category, watchedOnly, sort, search]);
 
   return (
     <main className="main-content">
@@ -819,10 +847,17 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
           </select>
         </div>
       </section>
+      <div className="content-kind-tabs" role="tablist" aria-label="Тип предложения">
+        {[
+          ['all', 'Все предложения'],
+          ['video', 'Видео'],
+          ['stream_idea', 'Идеи для стрима'],
+        ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => setKind(value)}>{label}<span>{value === 'all' ? videos.length : videos.filter((video) => (video.contentKind || 'video') === value).length}</span></button>)}
+      </div>
       <div className="chips">
         <div className="chip-bar">
           <div className="chip-scroll">
-            {['Все', ...categories].map((item) => (
+            {['Все', ...categories.filter((item) => item !== 'Идеи для стрима')].map((item) => (
               <button key={item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}>
                 {item}
               </button>
@@ -882,7 +917,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
               <h3>Предлагайте — Равшан смотрит</h3>
               <p>Зрители отправляют YouTube-ссылки, а модераторы допускают безопасные ролики в ленту.</p>
               <button className="primary-btn" onClick={() => can(role, 'submit') ? navigate('submit') : onLogin()}>
-                {can(role, 'submit') ? 'Предложить видео' : 'Войти через Twitch'} <ArrowUpRight size={15} />
+                {can(role, 'submit') ? 'Предложить' : 'Войти через Twitch'} <ArrowUpRight size={15} />
               </button>
             </div>
           </div>
@@ -1151,14 +1186,18 @@ function LegalView({ kind }) {
 }
 
 function SubmitView({ state, actor, navigate, notify, onSubmit }) {
+  const [contentKind, setContentKind] = useState('');
+  const [sourceType, setSourceType] = useState('youtube');
   const [url, setUrl] = useState('');
+  const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
   const [comment, setComment] = useState('');
   const [movie, setMovie] = useState({ title: '', year: '', studio: '', rating: '', url: '' });
   const [error, setError] = useState('');
   const [sentId, setSentId] = useState(null);
   const count = recentSubmissionCount(state.videos, actor.id);
-  const youtubeId = parseYouTubeId(url);
+  const isIdea = contentKind === 'stream_idea';
+  const youtubeId = sourceType === 'youtube' ? parseYouTubeId(url) : null;
   const trailerCategory = /трейлер|фильм|сериал/i.test(category);
 
   const [submitting, setSubmitting] = useState(false);
@@ -1166,15 +1205,25 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
   const submit = async (event) => {
     event.preventDefault();
     setError('');
-    if (!youtubeId) return setError('Проверьте ссылку: нужен корректный URL YouTube.');
-    if (!category) return setError('Выберите категорию.');
+    if (!isIdea && sourceType === 'youtube' && !youtubeId) return setError('Проверьте ссылку: нужен корректный URL YouTube.');
+    if (!isIdea && sourceType !== 'youtube' && !/^https?:\/\//i.test(url.trim())) return setError('Добавьте корректную ссылку.');
+    if ((isIdea || sourceType !== 'youtube') && !title.trim()) return setError('Добавьте название предложения.');
+    if (!isIdea && !category) return setError('Выберите категорию.');
     if (trailerCategory && !/^https:\/\/(?:www\.)?kinopoisk\.ru\//i.test(movie.url.trim())) return setError('Для фильма добавьте корректную ссылку на Кинопоиск.');
     if (isDuplicate(state.videos, youtubeId)) return setError('Это видео уже есть в предложке.');
     if (count >= state.settings.dailyLimit) return setError(`Достигнут лимит: ${state.settings.dailyLimit} отправки за 24 часа.`);
     setSubmitting(true);
     try {
       if (comment.trim().length > state.settings.commentLimit) return setError(`Пожелание должно занимать не более ${state.settings.commentLimit} символов.`);
-      const video = await onSubmit({ url, category, comment: comment.trim(), movie: trailerCategory ? movie : null });
+      const video = await onSubmit({
+        contentKind,
+        sourceType: isIdea ? 'idea' : sourceType,
+        url: isIdea ? '' : url,
+        title: title.trim(),
+        category: isIdea ? 'Идеи для стрима' : category,
+        comment: comment.trim(),
+        movie: !isIdea && trailerCategory ? movie : null,
+      });
       setSentId(video.id);
       notify('Видео добавлено в очередь модерации');
     } catch (submissionError) {
@@ -1183,6 +1232,25 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
       setSubmitting(false);
     }
   };
+
+  if (!contentKind) {
+    return (
+      <main className="main-content narrow">
+        <section className="page-heading">
+          <div><div className="eyebrow">НОВОЕ ПРЕДЛОЖЕНИЕ</div><h1>Что хотите предложить?</h1><p>Выберите раздел — дальше откроются только нужные поля.</p></div>
+          <button className="ghost-btn" onClick={() => navigate('feed')}>Назад в предложку</button>
+        </section>
+        <section className="submission-kind-picker">
+          <button className="submission-kind-card" onClick={() => setContentKind('video')}>
+            <Play size={30} /><span>ВИДЕО</span><strong>YouTube, TikTok, Instagram или другая ссылка</strong><small>Выберите источник и категорию, затем прикрепите ссылку.</small>
+          </button>
+          <button className="submission-kind-card idea" onClick={() => setContentKind('stream_idea')}>
+            <Lightbulb size={30} /><span>ИДЕЯ ДЛЯ СТРИМА</span><strong>Тема, рубрика, челлендж или формат</strong><small>Опишите идею — она появится в отдельном разделе предложки.</small>
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   if (sentId) {
     return (
@@ -1209,8 +1277,8 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
       <section className="page-heading">
         <div>
           <div className="eyebrow">НОВАЯ ОТПРАВКА</div>
-          <h1>Предложить видео</h1>
-          <p>Отправьте ссылку — видеофайл останется на YouTube</p>
+          <h1>{isIdea ? 'Предложить идею для стрима' : 'Предложить видео'}</h1>
+          <p>{isIdea ? 'Опишите идею — пользователи смогут увидеть и оценить её в предложке' : 'Выберите источник, категорию и прикрепите ссылку'}</p>
         </div>
         <button className="ghost-btn" onClick={() => navigate('feed')}>Назад к ленте</button>
       </section>
@@ -1225,14 +1293,25 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
               <Clock3 size={14} /> {count} из {state.settings.dailyLimit} за 24 часа
             </span>
           </div>
-          <label>
+          {!isIdea && <div className="source-type-picker" role="group" aria-label="Источник видео">
+            {[
+              ['youtube', 'YouTube'],
+              ['short_video', 'TikTok / Instagram'],
+              ['external', 'Другая ссылка'],
+            ].map(([value, label]) => <button type="button" key={value} className={sourceType === value ? 'selected' : ''} onClick={() => { setSourceType(value); setUrl(''); }}>{label}</button>)}
+          </div>}
+          {!isIdea && <label>
             Категория
             <select value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="">Выберите категорию</option>
               {state.categories.map((item) => <option key={item}>{item}</option>)}
             </select>
-          </label>
-          {trailerCategory ? (
+          </label>}
+          {isIdea ? (
+            <label>Название идеи
+              <input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} placeholder="Например: турнир подписчиков в EA FC" />
+            </label>
+          ) : trailerCategory && sourceType === 'youtube' ? (
             <div className="movie-links-grid">
               <label>Трейлер
                 <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Ссылка на YouTube-трейлер" inputMode="url" />
@@ -1242,21 +1321,24 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
               </label>
             </div>
           ) : (
-            <label>Ссылка на видео
-              <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." inputMode="url" />
-            </label>
+            <>
+              {sourceType !== 'youtube' && <label>Название видео<input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} placeholder="Коротко опишите, что находится по ссылке" /></label>}
+              <label>Ссылка на видео
+                <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder={sourceType === 'youtube' ? 'https://www.youtube.com/watch?v=...' : sourceType === 'short_video' ? 'https://www.tiktok.com/... или https://www.instagram.com/reel/...' : 'Ссылка на файлообменник или другой сайт'} inputMode="url" />
+              </label>
+            </>
           )}
           <label>
-            Пожелание Равшану <span>необязательно, будет видно на сайте</span>
+            {isIdea ? 'Описание идеи' : 'Пожелание Равшану'} <span>необязательно, будет видно на сайте</span>
             <textarea
               maxLength={state.settings.commentLimit}
               value={comment}
               onChange={(event) => setComment(event.target.value)}
-              placeholder="Что именно посмотреть или на что обратить внимание?"
+              placeholder={isIdea ? 'Как это должно проходить и что понадобится?' : 'Что именно посмотреть или на что обратить внимание?'}
             />
           </label>
           <div className="counter">{comment.length}/{state.settings.commentLimit}</div>
-          {trailerCategory && (
+          {!isIdea && trailerCategory && (
             <div className="movie-fields">
               <div className="panel-kicker">ДАННЫЕ ФИЛЬМА · НЕОБЯЗАТЕЛЬНО</div>
               <label>Название<input value={movie.title} onChange={(event) => setMovie({ ...movie, title: event.target.value })} /></label>
@@ -1267,7 +1349,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
           )}
           {error && <div className="form-error" role="alert">{error}</div>}
           <button className="primary-btn full" type="submit" disabled={submitting}>
-            {submitting ? 'Получаем данные YouTube…' : 'Проверить и отправить'} <ArrowUpRight size={15} />
+            {submitting ? 'Отправляем…' : 'Проверить и отправить'} <ArrowUpRight size={15} />
           </button>
           <p className="form-note">
             <ShieldCheck size={14} /> Локальная версия проверяет формат, дубликаты и суточный лимит.
@@ -1280,8 +1362,10 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
               <h2>Проверка ссылки</h2>
             </div>
           </div>
-          <div className={`preview-placeholder ${url && !youtubeId ? 'invalid' : ''}`}>
-            {youtubeId ? (
+          <div className={`preview-placeholder ${!isIdea && url && sourceType === 'youtube' && !youtubeId ? 'invalid' : ''}`}>
+            {isIdea ? (
+              <><Lightbulb size={28} /><strong>{title || 'Ваша идея для стрима'}</strong><span>{comment || 'Добавьте описание, чтобы идея была понятнее'}</span></>
+            ) : youtubeId ? (
               <>
                 <Link2 size={24} />
                 <strong>YouTube ID: {youtubeId}</strong>
@@ -1290,16 +1374,16 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
             ) : (
               <>
                 <Play size={24} />
-                <strong>{url ? 'Ссылка не распознана' : 'Вставьте ссылку на видео'}</strong>
-                <span>Поддерживаются watch, youtu.be, Shorts и live</span>
+                <strong>{url ? (sourceType === 'youtube' ? 'Ссылка не распознана' : 'Ссылка добавлена') : 'Вставьте ссылку на видео'}</strong>
+                <span>{sourceType === 'youtube' ? 'Поддерживаются watch, youtu.be, Shorts и live' : 'Модератор откроет источник по этой ссылке'}</span>
               </>
             )}
           </div>
           <div className="rules">
             <h3>Перед отправкой</h3>
-            <p><Check size={14} /> Видео должно быть доступно на YouTube</p>
-            <p><Check size={14} /> Дубликаты блокируются по video ID</p>
-            <p><Check size={14} /> Максимум {state.settings.dailyLimit} видео за 24 часа</p>
+            <p><Check size={14} /> {isIdea ? 'Сформулируйте понятное название идеи' : 'Ссылка должна открываться без специального доступа'}</p>
+            <p><Check size={14} /> Предложение сначала проверит модератор</p>
+            <p><Check size={14} /> Максимум {state.settings.dailyLimit} предложений за 24 часа</p>
           </div>
         </section>
       </form>
@@ -1321,7 +1405,7 @@ function ProfileView({ videos, actor, navigate }) {
           <p>{own.length} отправки · решения и отметка «Отсмотрено» видны здесь</p>
         </div>
         <button className="ghost-btn" onClick={() => navigate('submit')}>
-          <Plus size={15} /> Предложить видео
+          <Plus size={15} /> Предложить
         </button>
       </section>
       <section className="panel submissions">
@@ -1421,7 +1505,8 @@ function ModeratorMovieEditor({ video, onSave, notify }) {
 
 function ModerationView({ state, role, onDecision, onWatched, onDelete, onCategoryChange, onMovieUpdate, notify }) {
   const [tab, setTab] = useState('pending');
-  const items = state.videos.filter((video) => video.status === tab);
+  const [kind, setKind] = useState('all');
+  const items = state.videos.filter((video) => video.status === tab && (kind === 'all' || (video.contentKind || 'video') === kind));
   const [selectedId, setSelectedId] = useState(items[0]?.id);
   const [comment, setComment] = useState('');
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -1458,6 +1543,13 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
       </section>
       <div className="moderation-layout">
         <section className="panel queue">
+          <div className="moderation-kind-tabs">
+            {[
+              ['all', 'Все'],
+              ['video', 'Видео'],
+              ['stream_idea', 'Идеи'],
+            ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => { setKind(value); setSelectedId(state.videos.find((video) => video.status === tab && (value === 'all' || (video.contentKind || 'video') === value))?.id); }}>{label}</button>)}
+          </div>
           <div className="queue-tabs">
             {[
               ['pending', 'На рассмотрении'],
@@ -1497,15 +1589,14 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
               </div>
               <span className={`status ${selected.status}`}>{STATUS_LABELS[selected.status]}</span>
             </div>
-            <a href={selected.youtubeUrl} target="_blank" rel="noopener noreferrer" aria-label="Открыть видео на YouTube">
-              <Thumb video={selected} large />
-            </a>
+            {(selected.sourceUrl || selected.youtubeUrl) ? <a href={selected.sourceUrl || selected.youtubeUrl} target="_blank" rel="noopener noreferrer" aria-label="Открыть источник предложения"><Thumb video={selected} large /></a> : <Thumb video={selected} large />}
             <div className="review-copy">
               <span className="panel-kicker">КОММЕНТАРИЙ ПОЛЬЗОВАТЕЛЯ</span>
               <p>«{selected.submitterComment || 'Комментарий не оставлен'}»</p>
               <div className="meta-grid">
                 <span>Категория <b>{selected.category}</b></span>
-                <span>Канал <b>{selected.channel} · {selected.views} просмотров</b></span>
+                <span>Тип <b>{selected.contentKind === 'stream_idea' ? 'Идея для стрима' : selected.sourceType === 'short_video' ? 'TikTok / Instagram' : selected.sourceType === 'external' ? 'Другая ссылка' : 'YouTube'}</b></span>
+                {selected.contentKind !== 'stream_idea' && <span>Источник <b>{selected.channel}{selected.sourceType === 'youtube' ? ` · ${selected.views} просмотров` : ''}</b></span>}
                 <span>Отправитель <b>{selected.author}</b></span>
               </div>
             </div>
@@ -1519,9 +1610,9 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
                 <div className="review-actions">
                   <button className="approve" onClick={() => decide('approved')}><Check size={15} /> Одобрить</button>
                   <button className="reject" onClick={() => decide('rejected')}><X size={15} /> Отклонить</button>
-                  <a className="outline-btn" href={selected.youtubeUrl} target="_blank" rel="noopener noreferrer">
-                    YouTube <ExternalLink size={14} />
-                  </a>
+                  {(selected.sourceUrl || selected.youtubeUrl) && <a className="outline-btn" href={selected.sourceUrl || selected.youtubeUrl} target="_blank" rel="noopener noreferrer">
+                    Открыть источник <ExternalLink size={14} />
+                  </a>}
                 </div>
               </>
             )}
@@ -1574,9 +1665,9 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
           </div>
           <div className="side-card check-list">
             <h3>Автопроверка</h3>
-            <p>✓ Ссылка YouTube</p>
-            <p>✓ Видео доступно</p>
-            <p>✓ Дубликат не найден</p>
+            <p>✓ Тип предложения определён</p>
+            <p>✓ Обязательные поля заполнены</p>
+            <p>✓ Источник сохранён</p>
             <p className="warn">! Содержание проверить вручную</p>
           </div>
           <div className="side-card">
@@ -1885,6 +1976,7 @@ function App() {
   const [search, setSearch] = useState('');
   const [authOpen, setAuthOpen] = useState(false);
   const [toast, setToast] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('ravshann-sidebar-collapsed') === '1');
   const moderationAudioRef = useRef(null);
   const pendingSubmissionIdsRef = useRef(new Set());
   const actor = sessionUser
@@ -1926,6 +2018,12 @@ function App() {
     window.clearTimeout(window.__ravshannToast);
     window.__ravshannToast = window.setTimeout(() => setToast(''), 2800);
   }, []);
+
+  const toggleSidebar = () => setSidebarCollapsed((current) => {
+    const next = !current;
+    window.localStorage.setItem('ravshann-sidebar-collapsed', next ? '1' : '0');
+    return next;
+  });
 
   useEffect(() => {
     if (!can(role, 'moderate')) return undefined;
@@ -2025,7 +2123,10 @@ function App() {
       notify(error.message);
     }
   };
-  const openVideo = (video) => window.open(video.youtubeUrl, '_blank', 'noopener,noreferrer');
+  const openVideo = (video) => {
+    const target = video.sourceUrl || video.youtubeUrl;
+    if (target) window.open(target, '_blank', 'noopener,noreferrer');
+  };
   const openAuth = () => setAuthOpen(true);
   const localTwitchLogin = () => {
     window.location.assign('/api/auth/twitch/start?return_to=/');
@@ -2065,11 +2166,14 @@ function App() {
       notify(error.message);
     }
   };
-  const submitVideo = async ({ url, category, comment, movie }) => {
+  const submitVideo = async ({ contentKind, sourceType, url, title, category, comment, movie }) => {
     const categoryRecord = state.categoryRecords?.find((item) => item.name === category);
     if (!apiReady || !categoryRecord) throw new Error('API пока недоступен — повторите через несколько секунд');
     const video = await api.createSubmission({
+      content_kind: contentKind,
+      source_type: sourceType,
       url,
+      title,
       category_id: categoryRecord.id,
       comment,
       kinopoisk_url: movie?.url?.trim() || '',
@@ -2193,7 +2297,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar route={route} navigate={navigate} role={role} unread={unread} actor={actor} />
+      <Sidebar route={route} navigate={navigate} role={role} unread={unread} actor={actor} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       <div className="app-body">
         <Topbar role={role} search={search} setSearch={setSearch} navigate={navigate} openAuth={openAuth} onSignOut={signOut} unread={unread} actor={actor} />
         {page}

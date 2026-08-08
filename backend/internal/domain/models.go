@@ -62,6 +62,9 @@ type Video struct {
 	MovieYear        *int             `json:"movie_year,omitempty"`
 	MovieStudio      string           `json:"movie_studio,omitempty"`
 	MovieRating      *float64         `json:"movie_rating,omitempty"`
+	ContentKind      string           `json:"content_kind"`
+	SourceType       string           `json:"source_type"`
+	SourceURL        string           `json:"source_url,omitempty"`
 	Watched          bool             `json:"watched"`
 	Rating           int64            `json:"rating"`
 	UserVote         int              `json:"user_vote,omitempty"`

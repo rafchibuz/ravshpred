@@ -18,9 +18,10 @@ import (
 
 type stubStore struct {
 	store.Store
-	categories  []domain.Category
-	news        []domain.NewsPost
-	sessionRole domain.Role
+	categories   []domain.Category
+	news         []domain.NewsPost
+	sessionRole  domain.Role
+	createdInput *store.CreateSubmissionInput
 }
 
 func (s *stubStore) Ping(context.Context) error { return nil }
@@ -49,6 +50,13 @@ func (s *stubStore) ListNews(context.Context, int) ([]domain.NewsPost, error) {
 }
 func (s *stubStore) CreateNewsPost(_ context.Context, authorID, title, body string) (domain.NewsPost, error) {
 	return domain.NewsPost{ID: "news-id", Title: title, Body: body, Author: domain.User{ID: authorID}}, nil
+}
+func (s *stubStore) GetSettings(context.Context) (domain.GlobalSettings, error) {
+	return domain.GlobalSettings{SubmissionDailyLimit: 5, CommentLimit: 500}, nil
+}
+func (s *stubStore) CreateSubmission(_ context.Context, input store.CreateSubmissionInput) (domain.Video, error) {
+	s.createdInput = &input
+	return domain.Video{ID: "idea-id", Title: input.Title, ContentKind: input.ContentKind, SourceType: input.SourceType}, nil
 }
 
 type stubYouTube struct{}
@@ -145,5 +153,27 @@ func TestVoteRequiresAuthentication(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("got %d, want 401: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUserCanSubmitStreamIdeaWithoutVideoURL(t *testing.T) {
+	t.Parallel()
+	database := &stubStore{
+		sessionRole: domain.RoleUser,
+		categories:  []domain.Category{{ID: "ideas-id", Slug: "stream-ideas", Name: "Идеи для стрима"}},
+	}
+	handler := testServer(database)
+	request := httptest.NewRequest(http.MethodPost, "/api/submissions", strings.NewReader(`{"content_kind":"stream_idea","source_type":"idea","title":"Турнир подписчиков","category_id":"ideas-id","comment":"Провести турнир во время эфира"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+	request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("got %d, want 201: %s", response.Code, response.Body.String())
+	}
+	if database.createdInput == nil || database.createdInput.ContentKind != "stream_idea" || database.createdInput.SourceURL != "" {
+		t.Fatalf("unexpected input: %#v", database.createdInput)
 	}
 }

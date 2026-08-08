@@ -28,6 +28,9 @@ type FeedParams struct {
 }
 
 type CreateSubmissionInput struct {
+	ContentKind      string
+	SourceType       string
+	SourceURL        string
 	YouTubeID        string
 	YouTubeURL       string
 	Title            string

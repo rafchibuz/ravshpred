@@ -29,6 +29,9 @@ var portalSchema string
 //go:embed migrations/000004_movies.sql
 var moviesSchema string
 
+//go:embed migrations/000005_submission_kinds.sql
+var submissionKindsSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -59,6 +62,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, moviesSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply movies schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, submissionKindsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply submission kinds schema: %w", err)
 	}
 	return result, nil
 }
@@ -91,6 +98,7 @@ const videoSelect = `
 		s.duration_seconds, s.view_count, s.youtube_like_count, s.status::text,
 		s.submitter_comment, s.moderator_comment, s.version, s.created_at, s.updated_at,
 		s.kinopoisk_url, s.movie_title, s.movie_year, s.movie_studio, s.movie_rating,
+		s.content_kind, s.source_type, s.source_url,
 		u.id::text, COALESCE(u.twitch_id,''), COALESCE(u.twitch_login,''), u.display_name,
 		u.avatar_url, u.role::text, u.created_at,
 		c.id::text, c.slug, c.name, c.is_system, c.sort_order, c.created_at,
@@ -134,7 +142,7 @@ func (s *Store) ListYouTubeRefreshTargets(ctx context.Context, limit int) ([]You
 	rows, err := s.pool.Query(ctx, `
 		SELECT id::text, youtube_id
 		FROM submissions
-		WHERE deleted_at IS NULL
+		WHERE deleted_at IS NULL AND source_type = 'youtube' AND youtube_id <> ''
 		ORDER BY metadata_fetched_at ASC NULLS FIRST, created_at DESC
 		LIMIT $1`, clampLimit(limit))
 	if err != nil {
@@ -220,12 +228,14 @@ func (s *Store) CreateSubmission(ctx context.Context, input store.CreateSubmissi
 			youtube_id, youtube_url, title, channel_title, thumbnail_url,
 			duration_seconds, view_count, youtube_like_count, metadata_fetched_at,
 			author_id, category_id, submitter_comment,
-			kinopoisk_url, movie_title, movie_year, movie_studio, movie_rating
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,$10,$11,$12,$13,$14,$15,$16)
+			kinopoisk_url, movie_title, movie_year, movie_studio, movie_rating,
+			content_kind, source_type, source_url
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $18='youtube' THEN now() ELSE NULL END,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		RETURNING id::text`,
 		input.YouTubeID, input.YouTubeURL, input.Title, input.ChannelTitle, input.ThumbnailURL,
 		input.DurationSeconds, input.ViewCount, input.YouTubeLikeCount, input.AuthorID, input.CategoryID, input.Comment,
 		input.KinopoiskURL, input.MovieTitle, input.MovieYear, input.MovieStudio, input.MovieRating,
+		input.ContentKind, input.SourceType, input.SourceURL,
 	).Scan(&id)
 	if isUniqueViolation(err) {
 		return domain.Video{}, store.ErrDuplicate
@@ -1055,6 +1065,7 @@ func scanVideo(row scanner, video *domain.Video) error {
 		&video.DurationSeconds, &video.ViewCount, &video.YouTubeLikeCount, &status,
 		&video.SubmitterComment, &video.ModeratorComment, &video.Version, &video.CreatedAt, &video.UpdatedAt,
 		&video.KinopoiskURL, &video.MovieTitle, &video.MovieYear, &video.MovieStudio, &video.MovieRating,
+		&video.ContentKind, &video.SourceType, &video.SourceURL,
 		&video.Author.ID, &video.Author.TwitchID, &video.Author.Login, &video.Author.Display,
 		&video.Author.AvatarURL, &role, &video.Author.CreatedAt,
 		&video.Category.ID, &video.Category.Slug, &video.Category.Name, &video.Category.IsSystem,

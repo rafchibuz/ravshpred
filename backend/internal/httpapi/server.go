@@ -409,7 +409,10 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
+		ContentKind  string   `json:"content_kind"`
+		SourceType   string   `json:"source_type"`
 		URL          string   `json:"url"`
+		Title        string   `json:"title"`
 		CategoryID   string   `json:"category_id"`
 		Comment      string   `json:"comment"`
 		KinopoiskURL string   `json:"kinopoisk_url"`
@@ -419,6 +422,24 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		MovieRating  *float64 `json:"movie_rating"`
 	}
 	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.ContentKind = strings.TrimSpace(input.ContentKind)
+	input.SourceType = strings.TrimSpace(input.SourceType)
+	if input.ContentKind == "" {
+		input.ContentKind = "video"
+	}
+	if input.SourceType == "" {
+		input.SourceType = "youtube"
+	}
+	if input.ContentKind != "video" && input.ContentKind != "stream_idea" {
+		writeError(w, http.StatusBadRequest, "invalid_content_kind", "Выберите видео или идею для стрима")
+		return
+	}
+	if input.ContentKind == "stream_idea" {
+		input.SourceType = "idea"
+	} else if input.SourceType != "youtube" && input.SourceType != "short_video" && input.SourceType != "external" {
+		writeError(w, http.StatusBadRequest, "invalid_source_type", "Выберите источник предложения")
 		return
 	}
 	settings, err := s.store.GetSettings(r.Context())
@@ -445,7 +466,7 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_category", "Выберите существующую категорию")
 		return
 	}
-	if movieCategory && strings.TrimSpace(input.KinopoiskURL) == "" {
+	if input.ContentKind == "video" && movieCategory && strings.TrimSpace(input.KinopoiskURL) == "" {
 		writeError(w, http.StatusBadRequest, "kinopoisk_required", "Для фильма нужна ссылка на Кинопоиск")
 		return
 	}
@@ -457,25 +478,61 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_movie_metadata", "Проверьте ссылку на Кинопоиск и данные фильма")
 		return
 	}
-	id, err := domain.ParseYouTubeID(input.URL)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_youtube_url", "Некорректная ссылка YouTube")
-		return
-	}
-	metadata, err := s.youtube.Fetch(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "youtube_unavailable", err.Error())
-		return
+	var youtubeID, canonicalURL, title, channelTitle, thumbnailURL string
+	var durationSeconds int
+	var viewCount, likeCount int64
+	sourceURL := strings.TrimSpace(input.URL)
+	if input.SourceType == "youtube" {
+		id, parseErr := domain.ParseYouTubeID(sourceURL)
+		if parseErr != nil {
+			writeError(w, http.StatusBadRequest, "invalid_youtube_url", "Некорректная ссылка YouTube")
+			return
+		}
+		metadata, fetchErr := s.youtube.Fetch(r.Context(), id)
+		if fetchErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, "youtube_unavailable", fetchErr.Error())
+			return
+		}
+		youtubeID, canonicalURL, sourceURL = id, domain.CanonicalYouTubeURL(id), domain.CanonicalYouTubeURL(id)
+		title, channelTitle, thumbnailURL = metadata.Title, metadata.ChannelTitle, metadata.ThumbnailURL
+		durationSeconds, viewCount, likeCount = metadata.DurationSeconds, metadata.ViewCount, metadata.YouTubeLikeCount
+	} else if input.ContentKind == "stream_idea" {
+		title = strings.TrimSpace(input.Title)
+		if title == "" || len([]rune(title)) > 160 {
+			writeError(w, http.StatusBadRequest, "invalid_idea_title", "Добавьте название идеи до 160 символов")
+			return
+		}
+		channelTitle = "Идея для стрима"
+		sourceURL = ""
+	} else {
+		parsedURL, parseErr := url.ParseRequestURI(sourceURL)
+		if parseErr != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+			writeError(w, http.StatusBadRequest, "invalid_source_url", "Добавьте корректную ссылку http или https")
+			return
+		}
+		title = strings.TrimSpace(input.Title)
+		if title == "" || len([]rune(title)) > 160 {
+			writeError(w, http.StatusBadRequest, "invalid_submission_title", "Добавьте название до 160 символов")
+			return
+		}
+		if input.SourceType == "short_video" {
+			channelTitle = "TikTok / Instagram"
+		} else {
+			channelTitle = parsedURL.Hostname()
+		}
 	}
 	video, err := s.store.CreateSubmission(r.Context(), store.CreateSubmissionInput{
-		YouTubeID:        id,
-		YouTubeURL:       domain.CanonicalYouTubeURL(id),
-		Title:            metadata.Title,
-		ChannelTitle:     metadata.ChannelTitle,
-		ThumbnailURL:     metadata.ThumbnailURL,
-		DurationSeconds:  metadata.DurationSeconds,
-		ViewCount:        metadata.ViewCount,
-		YouTubeLikeCount: metadata.YouTubeLikeCount,
+		ContentKind:      input.ContentKind,
+		SourceType:       input.SourceType,
+		SourceURL:        sourceURL,
+		YouTubeID:        youtubeID,
+		YouTubeURL:       canonicalURL,
+		Title:            title,
+		ChannelTitle:     channelTitle,
+		ThumbnailURL:     thumbnailURL,
+		DurationSeconds:  durationSeconds,
+		ViewCount:        viewCount,
+		YouTubeLikeCount: likeCount,
 		AuthorID:         actor.User.ID,
 		CategoryID:       input.CategoryID,
 		Comment:          input.Comment,
