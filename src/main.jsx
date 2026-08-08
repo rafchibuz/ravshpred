@@ -854,7 +854,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
           ['stream_idea', 'Идеи для стрима'],
         ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => setKind(value)}>{label}<span>{value === 'all' ? videos.length : videos.filter((video) => (video.contentKind || 'video') === value).length}</span></button>)}
       </div>
-      <div className="chips">
+      {kind !== 'stream_idea' && <div className="chips">
         <div className="chip-bar">
           <div className="chip-scroll">
             {['Все', ...categories.filter((item) => item !== 'Идеи для стрима')].map((item) => (
@@ -895,7 +895,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
             </div>
           </details>
         </div>
-      </div>
+      </div>}
       <div className="content-grid">
         <section className={`feed-grid ${list ? 'feed-list' : ''}`}>
           {filtered.map((video) => (
@@ -1304,7 +1304,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
             Категория
             <select value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="">Выберите категорию</option>
-              {state.categories.map((item) => <option key={item}>{item}</option>)}
+              {state.categories.filter((item) => item !== 'Идеи для стрима').map((item) => <option key={item}>{item}</option>)}
             </select>
           </label>}
           {isIdea ? (
