@@ -31,6 +31,7 @@ import {
   ThumbsUp,
   Trophy,
   Trash2,
+  Upload,
   UserRound,
   X,
 } from 'lucide-react';
@@ -910,6 +911,23 @@ function StreamClipsStrip({ streamer, navigate }) {
   const hasCurrentStreamClips = Boolean(streamer?.live && streamer?.started_at && streamClips.some((clip) => (
     new Date(clip.created_at) >= new Date(streamer.started_at)
   )));
+  useEffect(() => {
+    const row = clipsRowRef.current;
+    if (!row) return undefined;
+    const scrollWithWheel = (event) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      const maximum = row.scrollWidth - row.clientWidth;
+      const next = Math.max(0, Math.min(maximum, row.scrollLeft + event.deltaY));
+      if (next === row.scrollLeft) return;
+      event.preventDefault();
+      row.scrollLeft = next;
+    };
+    row.addEventListener('wheel', scrollWithWheel, { passive: false });
+    return () => row.removeEventListener('wheel', scrollWithWheel);
+  }, [loading, streamClips.length]);
+  useEffect(() => {
+    if (clipsRowRef.current) clipsRowRef.current.scrollLeft = 0;
+  }, [channel]);
   return <section className="home-clips-section">
     <header>
       <div><span className="panel-kicker">TWITCH-КЛИПЫ</span><h2>{channel === 'all' ? 'Клипы прошлых стримов' : (hasCurrentStreamClips ? 'Клипы текущего стрима' : 'Клипы прошлого стрима')}</h2><p>{channel === 'all' ? 'Последние стримы с двух каналов — RavshanN и ravshanbtw' : `Последний доступный стрим канала ${channel === 'ravshann' ? 'RavshanN' : 'ravshanbtw'}`}</p></div>
@@ -923,7 +941,7 @@ function StreamClipsStrip({ streamer, navigate }) {
     </div>
     {loading && <div className="home-clips-loading"><span className="clips-loader" /> Загружаем клипы…</div>}
     {!loading && !streamClips.length && <div className="home-clips-empty">Для выбранного канала и фильтров клипов пока нет.</div>}
-    {!loading && streamClips.length > 0 && <div className="home-clips-row" ref={clipsRowRef} onWheel={(event) => { const row = clipsRowRef.current; if (!row || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return; event.preventDefault(); row.scrollLeft += event.deltaY; }}>{streamClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} compact onOpen={setSelected} />)}</div>}
+    {!loading && streamClips.length > 0 && <div className="home-clips-row" ref={clipsRowRef}>{streamClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} compact onOpen={setSelected} />)}</div>}
     {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
   </section>;
 }
@@ -2003,7 +2021,7 @@ function SiteLinksModal({ links, onClose, onSave, notify }) {
               <label>Название<input value={item.name} maxLength={40} placeholder="Название плашки" onChange={(event) => patchItem(index, { name: event.target.value })} /></label>
               <label>Ссылка<input type="url" value={item.url} placeholder="https://..." onChange={(event) => patchItem(index, { url: event.target.value })} /></label>
               <label>Иконка<select value={iconValue} onChange={(event) => patchItem(index, { icon: event.target.value === 'auto' ? '' : `builtin:${event.target.value}` })}>{LINK_ICON_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}{iconValue === 'custom' && <option value="custom" disabled>Своя загруженная</option>}</select></label>
-              <label className="custom-icon-upload">Своя иконка<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { patchItem(index, { icon: await resizeLinkIcon(file) }); } catch (error) { notify(error.message); } event.target.value = ''; }} /></label>
+              <label className="custom-icon-upload">Своя иконка<span className={iconValue === 'custom' ? 'has-custom-icon' : ''}><Upload size={14} /> {iconValue === 'custom' ? 'Заменить' : 'Загрузить'}</span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { patchItem(index, { icon: await resizeLinkIcon(file) }); } catch (error) { notify(error.message); } event.target.value = ''; }} /></label>
             </div>
             <div className="site-link-actions"><button type="button" disabled={position === 0} onClick={() => moveItem(index, -1)} aria-label="Поднять"><ArrowUp size={15} /></button><button type="button" disabled={position === sectionItems.length - 1} onClick={() => moveItem(index, 1)} aria-label="Опустить"><ArrowDown size={15} /></button><button type="button" className="danger-btn" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /> Удалить</button></div>
           </article>;

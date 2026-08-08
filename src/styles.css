@@ -337,10 +337,14 @@
 .site-link-card { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: end; gap: 13px; padding: 13px; border: 1px solid #38313f; border-radius: 10px; background: #1a171e; }
 .site-link-card-preview { width: 48px; height: 48px; display: grid; place-items: center; align-self: center; overflow: hidden; border: 1px solid #413849; border-radius: 10px; color: #877d8e; background: #111015; }
 .site-link-card-preview img { max-width: 34px; max-height: 34px; object-fit: contain; }
-.site-link-fields { min-width: 0; display: grid; grid-template-columns: minmax(130px,.7fr) minmax(220px,1.3fr) minmax(145px,.65fr) minmax(145px,.65fr); gap: 9px; }
+.site-link-fields { min-width: 0; display: grid; grid-template-columns: minmax(140px,.72fr) minmax(250px,1.4fr) minmax(155px,.7fr) 132px; gap: 9px; }
 .site-link-fields label { min-width: 0; display: grid; gap: 6px; color: #8f8795; font-size: 8px; }
 .site-link-fields input, .site-link-fields select { width: 100%; min-width: 0; height: 38px; }
-.custom-icon-upload input { padding: 7px; font-size: 8px; }
+.custom-icon-upload { position: relative; cursor: pointer; }
+.custom-icon-upload input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.custom-icon-upload > span { height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; border: 1px solid #403847; border-radius: 7px; color: #c6b9cd; background: #211d25; font-size: 9px; font-weight: 700; }
+.custom-icon-upload:hover > span { border-color: #8f49cc; color: #fff; }
+.custom-icon-upload > span.has-custom-icon { border-color: #5f3b78; color: #d5a8fa; background: #291a32; }
 .site-link-actions { display: flex; gap: 5px; }
 .site-link-actions > button:not(.danger-btn) { width: 34px; height: 38px; display: grid; place-items: center; border: 1px solid #403747; border-radius: 7px; color: #cabbd2; background: #211c25; }
 .site-link-actions > button:disabled { opacity: .28; cursor: not-allowed; }
