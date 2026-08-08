@@ -108,12 +108,13 @@ type AuditEntry struct {
 }
 
 type GlobalSettings struct {
-	SubmissionDailyLimit int         `json:"submission_daily_limit"`
-	CommentLimit         int         `json:"submission_comment_limit"`
-	PublicFeedEnabled    bool        `json:"public_feed_enabled"`
-	AllowSelfVote        bool        `json:"allow_self_vote"`
-	Socials              SocialLinks `json:"socials"`
+	SubmissionDailyLimit int          `json:"submission_daily_limit"`
+	CommentLimit         int          `json:"submission_comment_limit"`
+	PublicFeedEnabled    bool         `json:"public_feed_enabled"`
+	AllowSelfVote        bool         `json:"allow_self_vote"`
+	Socials              SocialLinks  `json:"socials"`
 	SocialItems          []SocialItem `json:"social_links"`
+	SupportItems         []SocialItem `json:"support_links"`
 }
 
 type SocialItem struct {
@@ -129,17 +130,18 @@ type SocialLinks struct {
 }
 
 type StreamerStatus struct {
-	Login        string      `json:"login"`
-	DisplayName  string      `json:"display_name"`
-	AvatarURL    string      `json:"avatar_url"`
-	Live         bool        `json:"live"`
-	Title        string      `json:"title,omitempty"`
-	GameName     string      `json:"game_name,omitempty"`
-	ViewerCount  int         `json:"viewer_count,omitempty"`
-	StartedAt    *time.Time  `json:"started_at,omitempty"`
-	ThumbnailURL string      `json:"thumbnail_url,omitempty"`
-	Socials      SocialLinks `json:"socials"`
+	Login        string       `json:"login"`
+	DisplayName  string       `json:"display_name"`
+	AvatarURL    string       `json:"avatar_url"`
+	Live         bool         `json:"live"`
+	Title        string       `json:"title,omitempty"`
+	GameName     string       `json:"game_name,omitempty"`
+	ViewerCount  int          `json:"viewer_count,omitempty"`
+	StartedAt    *time.Time   `json:"started_at,omitempty"`
+	ThumbnailURL string       `json:"thumbnail_url,omitempty"`
+	Socials      SocialLinks  `json:"socials"`
 	SocialItems  []SocialItem `json:"social_links"`
+	SupportItems []SocialItem `json:"support_links"`
 }
 
 type UserStats struct {

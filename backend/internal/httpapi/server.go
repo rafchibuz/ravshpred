@@ -164,7 +164,7 @@ func (s *Server) streamer(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	result := domain.StreamerStatus{Login: "ravshann", DisplayName: "RavshanN", Socials: settings.Socials, SocialItems: settings.SocialItems}
+	result := domain.StreamerStatus{Login: "ravshann", DisplayName: "RavshanN", Socials: settings.Socials, SocialItems: settings.SocialItems, SupportItems: settings.SupportItems}
 	if !s.twitch.Configured() {
 		s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(time.Minute)
 		writeJSON(w, http.StatusOK, map[string]any{"data": result})
@@ -801,9 +801,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 			validSocials = false
 		}
 	}
+	validSupport := len(input.SupportItems) <= 12
+	for _, item := range input.SupportItems {
+		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" {
+			validSupport = false
+		}
+	}
 	if input.SubmissionDailyLimit < 1 || input.SubmissionDailyLimit > 20 ||
 		input.CommentLimit < 100 || input.CommentLimit > 2000 ||
-		!validSocials ||
+		!validSocials || !validSupport ||
 		!validOptionalURL(input.Socials.Twitch) || !validOptionalURL(input.Socials.YouTube) ||
 		!validOptionalURL(input.Socials.Telegram) || !validOptionalURL(input.Socials.VK) {
 		writeError(w, http.StatusBadRequest, "invalid_settings", "Настройки вне допустимого диапазона")
@@ -813,6 +819,9 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
+	s.streamerMu.Lock()
+	s.streamerCacheUntil = time.Time{}
+	s.streamerMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"data": input})
 }
 

@@ -869,6 +869,8 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 			if json.Unmarshal([]byte(value), &result.SocialItems) == nil {
 				hasSocialItems = true
 			}
+		case "support_links":
+			_ = json.Unmarshal([]byte(value), &result.SupportItems)
 		}
 	}
 	if !hasSocialItems {
@@ -898,6 +900,7 @@ func (s *Store) UpdateSettings(ctx context.Context, settings domain.GlobalSettin
 		"social_telegram":          settings.Socials.Telegram,
 		"social_vk":                settings.Socials.VK,
 		"social_links":             settings.SocialItems,
+		"support_links":            settings.SupportItems,
 	}
 	for key, value := range values {
 		encoded, _ := json.Marshal(value)

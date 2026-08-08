@@ -97,7 +97,7 @@ function makeInitialState() {
   return {
     categories: ['Без категории', 'Смешное', 'Трейлеры', 'Фильмы и сериалы', 'Разоблачения'],
     moderators: ['moderator_live', 'lexapro_tv', 'shadowmff'],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [] },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [], supportLinks: [] },
     streamer: null,
     userStats: [],
     videos: [
@@ -332,7 +332,7 @@ function emptyServerState() {
     news: [],
     audit: [],
     auditRecords: [],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [] },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [], supportLinks: [] },
     streamer: null,
     userStats: [],
   };
@@ -637,6 +637,25 @@ function formatStreamDuration(startedAt, now) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
+function LinkDirectory({ title, links }) {
+  const items = links || [];
+  return (
+    <section className="stream-socials social-directory-section">
+      <header><h2>{title}</h2><span>{String(items.length).padStart(2, '0')}</span></header>
+      <div className="social-directory">
+        {items.map((item, index) => (
+          <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <div><strong>{item.name}</strong><small>{item.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</small></div>
+            <ArrowUpRight size={16} />
+          </a>
+        ))}
+        {!items.length && <div className="social-directory-empty">Ссылки появятся здесь после добавления в настройках</div>}
+      </div>
+    </section>
+  );
+}
+
 function StreamerHome({ streamer }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -652,6 +671,7 @@ function StreamerHome({ streamer }) {
     { name: 'Telegram', url: socials.telegram },
     { name: 'VK', url: socials.vk },
   ]).filter((item) => item.url);
+  const supportLinks = (streamer.support_links || []).filter((item) => item.url);
   return (
     <main className="main-content stream-home">
       <section className={`streamer-hero streamer-cinema ${streamer.live ? 'is-live' : ''}`}>
@@ -693,18 +713,8 @@ function StreamerHome({ streamer }) {
         </div>
       </div>}
       </section>
-      <section className="stream-socials social-directory-section">
-        <header><h2>Соцсети</h2><span>{String(links.length).padStart(2, '0')}</span></header>
-        <div className="social-directory">
-          {links.map((item, index) => (
-            <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <div><strong>{item.name}</strong><small>{item.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</small></div>
-              <ArrowUpRight size={16} />
-            </a>
-          ))}
-        </div>
-      </section>
+      <LinkDirectory title="Соцсети" links={links} />
+      <LinkDirectory title="Поддержка" links={supportLinks} />
     </main>
   );
 }
@@ -1723,6 +1733,21 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
               </div>
             ))}
             <button type="button" className="ghost-btn" onClick={() => setSettings({ ...settings, socialLinks: [...(settings.socialLinks || []), { name: '', url: '' }] })}><Plus size={14} /> Добавить соцсеть</button>
+          </div>
+          <h3>Поддержка проекта</h3>
+          <div className="social-settings-list">
+            {(settings.supportLinks || []).map((item, index) => (
+              <div className="social-setting-row" key={index}>
+                <label>Название
+                  <input value={item.name} maxLength={40} placeholder="DonationAlerts" onChange={(event) => setSettings({ ...settings, supportLinks: settings.supportLinks.map((link, linkIndex) => linkIndex === index ? { ...link, name: event.target.value } : link) })} />
+                </label>
+                <label>Ссылка
+                  <input type="url" value={item.url} placeholder="https://..." onChange={(event) => setSettings({ ...settings, supportLinks: settings.supportLinks.map((link, linkIndex) => linkIndex === index ? { ...link, url: event.target.value } : link) })} />
+                </label>
+                <button type="button" className="danger-btn" onClick={() => setSettings({ ...settings, supportLinks: settings.supportLinks.filter((_, linkIndex) => linkIndex !== index) })}>Удалить</button>
+              </div>
+            ))}
+            <button type="button" className="ghost-btn" onClick={() => setSettings({ ...settings, supportLinks: [...(settings.supportLinks || []), { name: '', url: '' }] })}><Plus size={14} /> Добавить ссылку поддержки</button>
           </div>
           <button
             className="primary-btn"

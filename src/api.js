@@ -189,6 +189,7 @@ export async function loadWorkspace(role) {
       allowSelfVote: settings.data.allow_self_vote,
       socials: legacySocials,
       socialLinks: settings.data.social_links?.length ? settings.data.social_links : legacySocialLinks,
+      supportLinks: settings.data.support_links || [],
     };
     result.userStats = users.data || [];
   }
@@ -292,6 +293,7 @@ export function updateSettings(settings) {
       allow_self_vote: Boolean(settings.allowSelfVote),
       socials: settings.socials || {},
       social_links: settings.socialLinks || [],
+      support_links: settings.supportLinks || [],
     },
   });
 }
