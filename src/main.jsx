@@ -1216,7 +1216,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
               <label>Название<input value={movie.title} onChange={(event) => setMovie({ ...movie, title: event.target.value })} /></label>
               <label>Год<input inputMode="numeric" maxLength="4" value={movie.year} onChange={(event) => setMovie({ ...movie, year: event.target.value.replace(/\D/g, '') })} /></label>
               <label>Кинокомпания / студия<input value={movie.studio} onChange={(event) => setMovie({ ...movie, studio: event.target.value })} /></label>
-              <label>Рейтинг<input placeholder="например, 7.8" value={movie.rating} onChange={(event) => setMovie({ ...movie, rating: event.target.value })} /></label>
+              <label>Рейтинг<input inputMode="decimal" placeholder="например, 7,8" value={movie.rating} onChange={(event) => { const value = event.target.value; if (/^\d{0,2}(?:[.,]\d{0,1})?$/.test(value)) setMovie({ ...movie, rating: value }); }} /></label>
             </div>
           )}
           {error && <div className="form-error" role="alert">{error}</div>}
@@ -1361,7 +1361,7 @@ function ModeratorMovieEditor({ video, onSave, notify }) {
       <div className="movie-fields moderator-movie-fields">
         <label>Год<input inputMode="numeric" value={movie.year} onChange={(event) => setMovie({ ...movie, year: event.target.value.replace(/\D/g, '').slice(0, 4) })} /></label>
         <label>Кинокомпания / студия<input value={movie.studio} onChange={(event) => setMovie({ ...movie, studio: event.target.value })} /></label>
-        <label>Рейтинг<input type="number" min="0" max="10" step="0.1" value={movie.rating} onChange={(event) => setMovie({ ...movie, rating: event.target.value })} /></label>
+        <label>Рейтинг<input inputMode="decimal" value={movie.rating} placeholder="например, 5,7" onChange={(event) => { const value = event.target.value; if (/^\d{0,2}(?:[.,]\d{0,1})?$/.test(value)) setMovie({ ...movie, rating: value }); }} /></label>
       </div>
       <button className="outline-btn" disabled={saving} onClick={async () => {
         setSaving(true);
@@ -2017,7 +2017,7 @@ function App() {
       movie_title: movie?.title?.trim() || '',
       movie_year: movie?.year ? Number(movie.year) : null,
       movie_studio: movie?.studio?.trim() || '',
-      movie_rating: movie?.rating !== '' && movie?.rating != null ? Number(movie.rating) : null,
+      movie_rating: movie?.rating !== '' && movie?.rating != null ? Number(String(movie.rating).replace(',', '.')) : null,
     });
     setState((current) => ({ ...current, videos: [video, ...current.videos] }));
     return video;

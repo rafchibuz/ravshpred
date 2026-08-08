@@ -247,7 +247,7 @@ export function setMovieMetadata(videoId, movie, version) {
       movie_title: movie.title?.trim() || '',
       movie_year: movie.year ? Number(movie.year) : null,
       movie_studio: movie.studio?.trim() || '',
-      movie_rating: movie.rating !== '' && movie.rating != null ? Number(movie.rating) : null,
+      movie_rating: movie.rating !== '' && movie.rating != null ? Number(String(movie.rating).replace(',', '.')) : null,
       version,
     },
   }).then((payload) => normalizeVideo(payload.data));
