@@ -61,6 +61,15 @@ type UpdateMovieInput struct {
 	Version      int
 }
 
+type UpdateSubmissionContentInput struct {
+	SubmissionID string
+	ModeratorID  string
+	Title        string
+	SourceURL    string
+	Comment      string
+	Version      int
+}
+
 type DecideInput struct {
 	SubmissionID string
 	ModeratorID  string
@@ -89,6 +98,7 @@ type Store interface {
 	Decide(context.Context, DecideInput) (domain.Video, error)
 	SetWatched(context.Context, string, string, bool) error
 	UpdateVideoCategory(context.Context, string, string, string) error
+	UpdateSubmissionContent(context.Context, UpdateSubmissionContentInput) (domain.Video, error)
 	UpdateMovieMetadata(context.Context, UpdateMovieInput) (domain.Video, error)
 	DeleteVideo(context.Context, string, string) error
 

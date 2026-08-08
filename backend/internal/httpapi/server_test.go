@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ type stubStore struct {
 	news         []domain.NewsPost
 	sessionRole  domain.Role
 	createdInput *store.CreateSubmissionInput
+	updatedInput *store.UpdateSubmissionContentInput
 }
 
 func (s *stubStore) Ping(context.Context) error { return nil }
@@ -57,6 +59,10 @@ func (s *stubStore) GetSettings(context.Context) (domain.GlobalSettings, error) 
 func (s *stubStore) CreateSubmission(_ context.Context, input store.CreateSubmissionInput) (domain.Video, error) {
 	s.createdInput = &input
 	return domain.Video{ID: "idea-id", Title: input.Title, ContentKind: input.ContentKind, SourceType: input.SourceType}, nil
+}
+func (s *stubStore) UpdateSubmissionContent(_ context.Context, input store.UpdateSubmissionContentInput) (domain.Video, error) {
+	s.updatedInput = &input
+	return domain.Video{ID: input.SubmissionID, Title: input.Title, SourceURL: input.SourceURL, SubmitterComment: input.Comment, Version: input.Version + 1}, nil
 }
 
 type stubYouTube struct{}
@@ -175,5 +181,55 @@ func TestUserCanSubmitStreamIdeaWithoutVideoURL(t *testing.T) {
 	}
 	if database.createdInput == nil || database.createdInput.ContentKind != "stream_idea" || database.createdInput.SourceURL != "" {
 		t.Fatalf("unexpected input: %#v", database.createdInput)
+	}
+}
+
+func TestUserCanSubmitShortAndExternalLinks(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		name       string
+		sourceType string
+		url        string
+	}{
+		{name: "short video", sourceType: "short_video", url: "https://www.instagram.com/reel/example/"},
+		{name: "external", sourceType: "external", url: "https://kappa.lol/example"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			database := &stubStore{sessionRole: domain.RoleUser, categories: []domain.Category{{ID: "category-id", Slug: "funny", Name: "Смешное"}}}
+			handler := testServer(database)
+			body := fmt.Sprintf(`{"content_kind":"video","source_type":%q,"url":%q,"title":"Тестовое видео","category_id":"category-id"}`, testCase.sourceType, testCase.url)
+			request := httptest.NewRequest(http.MethodPost, "/api/submissions", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("X-CSRF-Token", "csrf")
+			request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+			request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusCreated {
+				t.Fatalf("got %d, want 201: %s", response.Code, response.Body.String())
+			}
+			if database.createdInput == nil || database.createdInput.SourceType != testCase.sourceType || database.createdInput.SourceURL != testCase.url {
+				t.Fatalf("unexpected input: %#v", database.createdInput)
+			}
+		})
+	}
+}
+
+func TestModeratorCanEditSubmissionContent(t *testing.T) {
+	t.Parallel()
+	database := &stubStore{sessionRole: domain.RoleModerator}
+	handler := testServer(database)
+	request := httptest.NewRequest(http.MethodPatch, "/api/moderation/submissions/video-id/content", strings.NewReader(`{"title":"Исправленное название","source_url":"https://kappa.lol/fixed","comment":"Уточнённое описание","version":2}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+	request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", response.Code, response.Body.String())
+	}
+	if database.updatedInput == nil || database.updatedInput.Title != "Исправленное название" || database.updatedInput.Version != 2 {
+		t.Fatalf("unexpected input: %#v", database.updatedInput)
 	}
 }

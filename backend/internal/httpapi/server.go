@@ -78,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}", s.moderate)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/watched", s.watched)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/category", s.videoCategory)
+	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/content", s.videoContent)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/movie", s.videoMovie)
 	mux.HandleFunc("DELETE /api/moderation/submissions/{id}", s.deleteVideo)
 	mux.HandleFunc("POST /api/owner/categories", s.createCategory)
@@ -724,6 +725,43 @@ func (s *Server) videoMovie(w http.ResponseWriter, r *http.Request) {
 		SubmissionID: r.PathValue("id"), ModeratorID: actor.User.ID, Version: input.Version,
 		KinopoiskURL: strings.TrimSpace(input.KinopoiskURL), MovieTitle: strings.TrimSpace(input.MovieTitle),
 		MovieYear: input.MovieYear, MovieStudio: strings.TrimSpace(input.MovieStudio), MovieRating: input.MovieRating,
+	})
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": video})
+}
+
+func (s *Server) videoContent(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "moderate")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Title     string `json:"title"`
+		SourceURL string `json:"source_url"`
+		Comment   string `json:"comment"`
+		Version   int    `json:"version"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Title, input.SourceURL, input.Comment = strings.TrimSpace(input.Title), strings.TrimSpace(input.SourceURL), strings.TrimSpace(input.Comment)
+	if input.Version < 1 || input.Title == "" || len([]rune(input.Title)) > 160 || len([]rune(input.Comment)) > 500 {
+		writeError(w, http.StatusBadRequest, "invalid_submission_content", "Проверьте название, ссылку и описание предложения")
+		return
+	}
+	if input.SourceURL != "" {
+		parsed, err := url.ParseRequestURI(input.SourceURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			writeError(w, http.StatusBadRequest, "invalid_source_url", "Добавьте корректную ссылку http или https")
+			return
+		}
+	}
+	video, err := s.store.UpdateSubmissionContent(r.Context(), store.UpdateSubmissionContentInput{
+		SubmissionID: r.PathValue("id"), ModeratorID: actor.User.ID, Title: input.Title,
+		SourceURL: input.SourceURL, Comment: input.Comment, Version: input.Version,
 	})
 	if err != nil {
 		s.storeError(w, err)

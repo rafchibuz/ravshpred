@@ -442,6 +442,46 @@ func (s *Store) UpdateVideoCategory(ctx context.Context, submissionID, categoryI
 	return err
 }
 
+func (s *Store) UpdateSubmissionContent(ctx context.Context, input store.UpdateSubmissionContentInput) (domain.Video, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Video{}, err
+	}
+	defer tx.Rollback(ctx)
+	var contentKind, sourceType string
+	if err := tx.QueryRow(ctx, `SELECT content_kind,source_type FROM submissions WHERE id::text=$1 AND deleted_at IS NULL FOR UPDATE`, input.SubmissionID).Scan(&contentKind, &sourceType); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Video{}, store.ErrNotFound
+		}
+		return domain.Video{}, err
+	}
+	if contentKind != "stream_idea" && sourceType != "youtube" && input.SourceURL == "" {
+		return domain.Video{}, store.ErrConflict
+	}
+	command, err := tx.Exec(ctx, `
+		UPDATE submissions SET title=$3,
+			source_url=CASE WHEN source_type='youtube' THEN source_url WHEN content_kind='stream_idea' THEN '' ELSE $4 END,
+			submitter_comment=$5,updated_at=now(),version=version+1
+		WHERE id::text=$1 AND version=$2 AND deleted_at IS NULL`,
+		input.SubmissionID, input.Version, input.Title, input.SourceURL, input.Comment)
+	if isUniqueViolation(err) {
+		return domain.Video{}, store.ErrDuplicate
+	}
+	if err != nil {
+		return domain.Video{}, err
+	}
+	if command.RowsAffected() != 1 {
+		return domain.Video{}, store.ErrVersionConflict
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'content_update','submission',$2)`, input.ModeratorID, input.SubmissionID); err != nil {
+		return domain.Video{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Video{}, err
+	}
+	return s.getVideo(ctx, input.SubmissionID, input.ModeratorID)
+}
+
 func (s *Store) UpdateMovieMetadata(ctx context.Context, input store.UpdateMovieInput) (domain.Video, error) {
 	command, err := s.pool.Exec(ctx, `
 		UPDATE submissions SET kinopoisk_url=$3,movie_title=$4,movie_year=$5,

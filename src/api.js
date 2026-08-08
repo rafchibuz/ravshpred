@@ -261,6 +261,18 @@ export function setMovieMetadata(videoId, movie, version) {
   }).then((payload) => normalizeVideo(payload.data));
 }
 
+export function setSubmissionContent(videoId, content, version) {
+  return request(`/moderation/submissions/${videoId}/content`, {
+    method: 'PATCH',
+    body: {
+      title: content.title?.trim() || '',
+      source_url: content.sourceUrl?.trim() || '',
+      comment: content.comment?.trim() || '',
+      version,
+    },
+  }).then((payload) => normalizeVideo(payload.data));
+}
+
 export function createCategory(name) {
   return request('/owner/categories', {
     method: 'POST',

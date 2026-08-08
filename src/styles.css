@@ -282,6 +282,13 @@
 .moderator-movie-editor > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .moderator-movie-editor small { color: #7f7786; font-size: 9px; }
 .moderator-movie-editor label { display: grid; gap: 6px; color: #9f97a5; font-size: 9px; }
+.moderator-content-editor { display: grid; gap: 11px; margin-top: 15px; padding: 14px; border: 1px solid #3d3447; border-radius: 9px; background: #17141b; }
+.moderator-content-editor > div, .moderator-movie-editor > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.moderator-content-editor small, .moderator-movie-editor small { color: #786f80; font-size: 8px; }
+.moderator-content-editor label { display: grid; gap: 6px; color: #9f97a5; font-size: 9px; }
+.moderator-content-editor textarea { min-height: 82px; }
+.moderator-content-editor input:disabled { color: #77717d; background: #111015; cursor: not-allowed; }
+.moderator-content-editor .outline-btn { width: fit-content; }
 .moderator-movie-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 0; border: 0; background: transparent; }
 .moderator-movie-editor .outline-btn { width: fit-content; padding: 0 14px; }
 .social-directory-section { display: block; padding: 26px 24px 0; }
@@ -375,6 +382,8 @@
   .social-service-icon { width: 30px; height: 30px; }
   .submission-kind-picker { grid-template-columns: 1fr; }
   .submission-kind-card { min-height: 190px; }
+  .moderator-content-editor > div, .moderator-movie-editor > div:first-child { align-items: flex-start; flex-direction: column; }
+  .moderator-content-editor .outline-btn { width: 100%; }
 }
 .legal-sections { display: grid; gap: 12px; }
 .legal-sections .panel { padding: 22px; }

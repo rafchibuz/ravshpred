@@ -590,7 +590,7 @@ function Thumb({ video, large = false }) {
         <span className={`mini-tag status-${status}`}>{STATUS_LABELS[status]?.toUpperCase() || 'ВИДЕО'}</span>
         {video.watched && (
           <span className="watched-chip">
-            <Eye size={11} /> ОТСМОТРЕНО
+            <Eye size={11} /> {isIdea ? 'РЕАЛИЗОВАНО' : 'ОТСМОТРЕНО'}
           </span>
         )}
       </div>
@@ -653,7 +653,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
             {!can(role, 'vote') && <div className="login-hint">Войдите через Twitch, чтобы голосовать</div>}
             {can(role, 'moderate') && (
               <button className="manage-video-btn" onClick={() => onManage(video)}>
-                <ShieldCheck size={14} /> Отсмотрено / удалить
+                <ShieldCheck size={14} /> Управление
               </button>
             )}
           </div>
@@ -890,7 +890,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
                 aria-pressed={watchedOnly}
                 onClick={() => setWatchedOnly((value) => !value)}
               >
-                <Eye size={13} /> Только отсмотренные
+                <Eye size={13} /> Отсмотрено / реализовано
               </button>
             </div>
           </details>
@@ -1435,7 +1435,7 @@ function ProfileView({ videos, actor, navigate }) {
               <strong>{video.title}</strong>
               <span>{video.category} · {new Date(video.createdAt).toLocaleString('ru-RU')}</span>
             </div>
-            <span className={`status ${video.status}`}>{STATUS_LABELS[video.status]}{video.watched && <small>Отсмотрено</small>}</span>
+            <span className={`status ${video.status}`}>{STATUS_LABELS[video.status]}{video.watched && <small>{video.contentKind === 'stream_idea' ? 'Реализовано' : 'Отсмотрено'}</small>}</span>
             <span className="decision">{video.moderatorComment || 'Ожидает решения модератора'}</span>
           </div>
         ))}
@@ -1472,6 +1472,30 @@ function NotificationView({ notifications, markAllRead, markRead }) {
   );
 }
 
+function ModeratorContentEditor({ video, onSave, notify }) {
+  const [content, setContent] = useState({ title: '', sourceUrl: '', comment: '' });
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setContent({
+    title: video.title || '', sourceUrl: video.sourceUrl || video.youtubeUrl || '', comment: video.submitterComment || '',
+  }), [video.id, video.title, video.sourceUrl, video.youtubeUrl, video.submitterComment]);
+  const isIdea = video.contentKind === 'stream_idea';
+  const isYouTube = (video.sourceType || 'youtube') === 'youtube';
+  return (
+    <section className="moderator-content-editor">
+      <div><span className="panel-kicker">СОДЕРЖИМОЕ ПРЕДЛОЖЕНИЯ</span><small>Модератор может исправить название, описание и внешнюю ссылку</small></div>
+      <label>Название<input maxLength={160} value={content.title} onChange={(event) => setContent({ ...content, title: event.target.value })} /></label>
+      {!isIdea && <label>Ссылка на источник<input type="url" disabled={isYouTube} value={content.sourceUrl} onChange={(event) => setContent({ ...content, sourceUrl: event.target.value })} /><small>{isYouTube ? 'YouTube-ссылка связана с полученными метаданными и не изменяется.' : 'Можно исправить ошибочную ссылку пользователя.'}</small></label>}
+      <label>{isIdea ? 'Описание идеи' : 'Пожелание пользователя'}<textarea maxLength={500} value={content.comment} onChange={(event) => setContent({ ...content, comment: event.target.value })} /></label>
+      <button className="outline-btn" disabled={saving || !content.title.trim()} onClick={async () => {
+        setSaving(true);
+        try { await onSave(video.id, content, video.version); notify('Предложение обновлено'); }
+        catch (error) { notify(error.message); }
+        finally { setSaving(false); }
+      }}>{saving ? 'Сохраняем…' : 'Сохранить предложение'}</button>
+    </section>
+  );
+}
+
 function ModeratorMovieEditor({ video, onSave, notify }) {
   const [movie, setMovie] = useState({ url: '', title: '', year: '', studio: '', rating: '' });
   const [saving, setSaving] = useState(false);
@@ -1503,7 +1527,7 @@ function ModeratorMovieEditor({ video, onSave, notify }) {
   );
 }
 
-function ModerationView({ state, role, onDecision, onWatched, onDelete, onCategoryChange, onMovieUpdate, notify }) {
+function ModerationView({ state, role, onDecision, onWatched, onDelete, onCategoryChange, onContentUpdate, onMovieUpdate, notify }) {
   const [tab, setTab] = useState('pending');
   const [kind, setKind] = useState('all');
   const items = state.videos.filter((video) => video.status === tab && (kind === 'all' || (video.contentKind || 'video') === kind));
@@ -1538,7 +1562,7 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
         <div>
           <div className="eyebrow"><span className="live-dot orange" /> ЗАЩИЩЁННЫЙ РАЗДЕЛ</div>
           <h1>Модерация видео</h1>
-          <p>Очередь, решение, категория и публичная отметка «Отсмотрено»</p>
+          <p>Очередь, решение, категория и публичные отметки «Отсмотрено» / «Реализовано»</p>
         </div>
       </section>
       <div className="moderation-layout">
@@ -1600,6 +1624,7 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
                 <span>Отправитель <b>{selected.author}</b></span>
               </div>
             </div>
+            <ModeratorContentEditor video={selected} onSave={onContentUpdate} notify={notify} />
             <ModeratorMovieEditor video={selected} onSave={onMovieUpdate} notify={notify} />
             {selected.status === 'pending' && (
               <>
@@ -1619,9 +1644,9 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
             {selected.status === 'approved' && (
               <div className="watched-row">
                 <button className={`watched-toggle ${selected.watched ? 'is-on' : ''}`} onClick={() => onWatched(selected.id)}>
-                  <Eye size={14} /> {selected.watched ? 'Отсмотрено' : 'Отметить как отсмотренное'}
+                  <Eye size={14} /> {selected.contentKind === 'stream_idea' ? (selected.watched ? 'Реализовано' : 'Отметить как реализованное') : (selected.watched ? 'Отсмотрено' : 'Отметить как отсмотренное')}
                 </button>
-                <span className="public-note">Плашку увидят все посетители</span>
+                <span className="public-note">{selected.contentKind === 'stream_idea' ? 'Плашку «Реализовано» увидят все посетители' : 'Плашку увидят все посетители'}</span>
               </div>
             )}
             {selected.status === 'rejected' && selected.moderatorComment && (
@@ -2191,6 +2216,12 @@ function App() {
     setState((current) => ({ ...current, videos: current.videos.map((video) => video.id === id ? updated : video) }));
     return updated;
   };
+  const updateSubmissionContent = async (id, content, version) => {
+    if (!apiReady) throw new Error('API пока недоступен');
+    const updated = await api.setSubmissionContent(id, content, version);
+    setState((current) => ({ ...current, videos: current.videos.map((video) => video.id === id ? updated : video) }));
+    return updated;
+  };
   const addCategory = async (name) => {
     if (!apiReady) throw new Error('API пока недоступен');
     const categoryRecord = await api.createCategory(name);
@@ -2290,7 +2321,7 @@ function App() {
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'notifications') page = can(role, 'view_profile') ? <NotificationView notifications={state.notifications} markAllRead={markAllNotifications} markRead={markNotification} /> : <AccessDenied role={role} onAccess={openAuth} />;
-  else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} onMovieUpdate={updateMovieMetadata} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} onContentUpdate={updateSubmissionContent} onMovieUpdate={updateMovieMetadata} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (['rules', 'privacy', 'terms'].includes(route)) page = <LegalView kind={route} />;
   else page = <StreamerHome streamer={state.streamer} />;
