@@ -110,13 +110,6 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cacheKey := r.URL.Query().Encode()
-	s.clipsMu.Lock()
-	if cached, ok := s.clipsCache[cacheKey]; ok && time.Now().Before(cached.Until) {
-		s.clipsMu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"data": cached.Items})
-		return
-	}
-	s.clipsMu.Unlock()
 	channel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
 	logins := []string{"ravshann", "ravshanbtw"}
 	if channel != "" && channel != "all" {
@@ -157,19 +150,64 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ttl := 10 * time.Minute
+	if r.URL.Query().Get("period") == "all" {
+		ttl = time.Hour
+	}
+	items := s.loadTwitchClips(r.Context(), cacheKey, logins, startedAt, endedAt, ttl)
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) loadTwitchClips(ctx context.Context, cacheKey string, logins []string, startedAt, endedAt *time.Time, ttl time.Duration) []twitch.Clip {
+	s.clipsMu.Lock()
+	if cached, ok := s.clipsCache[cacheKey]; ok && time.Now().Before(cached.Until) {
+		s.clipsMu.Unlock()
+		return cached.Items
+	}
+	s.clipsMu.Unlock()
 	items := make([]twitch.Clip, 0, 100)
 	for _, login := range logins {
-		clips, err := s.twitch.ClipsByLogin(r.Context(), login, startedAt, endedAt)
+		clips, err := s.twitch.ClipsByLogin(ctx, login, startedAt, endedAt)
 		if err != nil {
 			s.logger.Warn("twitch clips unavailable", "login", login, "error", err)
 			continue
 		}
 		items = append(items, clips...)
 	}
-	s.clipsMu.Lock()
-	s.clipsCache[cacheKey] = clipsCacheEntry{Items: items, Until: time.Now().Add(5 * time.Minute)}
-	s.clipsMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+	if ctx.Err() == nil {
+		s.clipsMu.Lock()
+		s.clipsCache[cacheKey] = clipsCacheEntry{Items: items, Until: time.Now().Add(ttl)}
+		s.clipsMu.Unlock()
+	}
+	return items
+}
+
+func (s *Server) StartClipCacheWarmer(ctx context.Context) {
+	if !s.twitch.Configured() {
+		return
+	}
+	go func() {
+		warm := func() {
+			now := time.Now().UTC()
+			weekStart := now.AddDate(0, 0, -7)
+			channels := []string{"ravshann", "ravshanbtw"}
+			s.loadTwitchClips(ctx, "channel=all&period=week", channels, &weekStart, &now, 10*time.Minute)
+			if ctx.Err() == nil {
+				s.loadTwitchClips(ctx, "channel=all&period=all", channels, nil, nil, time.Hour)
+			}
+		}
+		warm()
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				warm()
+			}
+		}
+	}()
 }
 
 func (s *Server) middleware(next http.Handler) http.Handler {

@@ -38,6 +38,7 @@ func main() {
 		go refreshYouTubeMetadata(ctx, database, youtubeClient, logger)
 	}
 	api := httpapi.New(cfg, database, youtubeClient, logger)
+	api.StartClipCacheWarmer(ctx)
 	server := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           api.Handler(),

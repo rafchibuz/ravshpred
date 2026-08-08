@@ -71,6 +71,26 @@ export function deduplicateTwitchClips(clips, toleranceSeconds = 30) {
   return kept;
 }
 
+export function latestTwitchStreamClips(clips, channel = 'all') {
+  const candidates = (clips || []).filter((clip) => (
+    channel === 'all' || String(clip.broadcaster_name || '').toLowerCase() === channel.toLowerCase()
+  ));
+  if (!candidates.length) return [];
+  const latest = [...candidates].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  const broadcaster = String(latest.broadcaster_name || '').toLowerCase();
+  if (latest.video_id) {
+    return candidates.filter((clip) => (
+      String(clip.broadcaster_name || '').toLowerCase() === broadcaster && clip.video_id === latest.video_id
+    ));
+  }
+  const latestTime = new Date(latest.created_at).getTime();
+  return candidates.filter((clip) => (
+    String(clip.broadcaster_name || '').toLowerCase() === broadcaster
+    && !clip.video_id
+    && latestTime - new Date(clip.created_at).getTime() <= 12 * 60 * 60 * 1000
+  ));
+}
+
 export function can(role, action) {
   const matrix = {
     guest: ['view_feed', 'open_video'],

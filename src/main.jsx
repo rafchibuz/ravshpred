@@ -38,6 +38,7 @@ import {
   can,
   deduplicateTwitchClips,
   isDuplicate,
+  latestTwitchStreamClips,
   newPendingSubmissions,
   parseYouTubeId,
   recentSubmissionCount,
@@ -725,7 +726,7 @@ function LinkDirectory({ title, links, compact = false }) {
   );
 }
 
-function StreamerHome({ streamer }) {
+function StreamerHome({ streamer, navigate }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -786,6 +787,7 @@ function StreamerHome({ streamer }) {
         </div>
       </div>}
       </section>
+      <StreamClipsStrip streamer={streamer} navigate={navigate} />
       <LinkDirectory title="Основные соцсети" links={primaryLinks} />
       <div className="link-directory-pair">
         <LinkDirectory title="Больше контента" links={moreLinks} compact />
@@ -831,6 +833,66 @@ function TwitchClipModal({ clip, onClose }) {
   );
 }
 
+function TwitchClipCard({ clip, onOpen, compact = false }) {
+  return <button className={`clip-card ${compact ? 'is-compact' : ''}`} onClick={() => onOpen(clip)} aria-label={`Смотреть клип «${clip.title}»`}>
+    <div className="clip-thumbnail">
+      <img src={clip.thumbnail_url} alt="" loading="lazy" />
+      <span className="clip-play"><Play size={22} fill="currentColor" /></span>
+      <span className="clip-duration">{Number(clip.duration || 0).toFixed(1).replace('.0', '')} с</span>
+      <span className="clip-views"><Eye size={12} /> {Number(clip.view_count || 0).toLocaleString('ru-RU')}</span>
+    </div>
+    <div className="clip-card-body"><h2>{clip.title}</h2><div><span>{clip.broadcaster_name}</span><time>{new Date(clip.created_at).toLocaleDateString('ru-RU')}</time></div><small>Автор клипа: {clip.creator_name}</small></div>
+  </button>;
+}
+
+function StreamClipsStrip({ streamer, navigate }) {
+  const initialChannel = ['ravshann', 'ravshanbtw'].includes(String(streamer?.login || '').toLowerCase())
+    ? String(streamer.login).toLowerCase()
+    : 'all';
+  const [channel, setChannel] = useState(initialChannel);
+  const [sort, setSort] = useState('popular');
+  const [minimumViews, setMinimumViews] = useState(0);
+  const [hideDuplicates, setHideDuplicates] = useState(true);
+  const [clips, setClips] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    api.loadTwitchClips({ channel: 'all', period: 'week' })
+      .then((items) => { if (active) setClips(items); })
+      .catch(() => {})
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  const streamClips = useMemo(() => {
+    let items = latestTwitchStreamClips(clips, channel)
+      .filter((clip) => Number(clip.view_count || 0) >= minimumViews);
+    if (hideDuplicates) items = deduplicateTwitchClips(items);
+    return [...items].sort((a, b) => sort === 'new'
+      ? new Date(b.created_at) - new Date(a.created_at)
+      : Number(b.view_count) - Number(a.view_count));
+  }, [clips, channel, sort, minimumViews, hideDuplicates]);
+  const hasCurrentStreamClips = Boolean(streamer?.live && streamer?.started_at && streamClips.some((clip) => (
+    new Date(clip.created_at) >= new Date(streamer.started_at)
+  )));
+  return <section className="home-clips-section">
+    <header>
+      <div><span className="panel-kicker">TWITCH-КЛИПЫ</span><h2>{hasCurrentStreamClips ? 'Клипы текущего стрима' : 'Клипы прошлого стрима'}</h2></div>
+      <button className="ghost-btn" onClick={() => navigate('clips')}>Все клипы <ArrowUpRight size={14} /></button>
+    </header>
+    <div className="home-clips-controls">
+      <div className="home-channel-switch">{[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
+      <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Сортировка клипов на главной"><option value="popular">Популярные</option><option value="new">Новые</option></select>
+      <label>От <input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /> просмотров</label>
+      <label className="clips-deduplicate"><input type="checkbox" checked={hideDuplicates} onChange={(event) => setHideDuplicates(event.target.checked)} /><span>Без повторов</span></label>
+    </div>
+    {loading && <div className="home-clips-loading"><span className="clips-loader" /> Загружаем клипы…</div>}
+    {!loading && !streamClips.length && <div className="home-clips-empty">Для выбранного канала и фильтров клипов пока нет.</div>}
+    {!loading && streamClips.length > 0 && <div className="home-clips-row">{streamClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} compact onOpen={setSelected} />)}</div>}
+    {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
+  </section>;
+}
+
 function TwitchClipsView() {
   const [filters, setFilters] = useState({ channel: 'all', period: 'week', from: '', to: '' });
   const [sort, setSort] = useState('popular');
@@ -870,6 +932,12 @@ function TwitchClipsView() {
   useEffect(() => setVisibleCount(48), [filters, sort, sortDirection, minimumViews, hideDuplicates]);
   const displayedClips = visibleClips.slice(0, visibleCount);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
+  const loadMore = (event) => {
+    const scrollTop = window.scrollY;
+    event.currentTarget.blur();
+    setVisibleCount((current) => current + 48);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo({ top: scrollTop, behavior: 'instant' })));
+  };
 
   return (
     <main className="main-content clips-page">
@@ -882,43 +950,34 @@ function TwitchClipsView() {
         <div className="clips-heading-total"><strong>{visibleClips.length}</strong><span>из {clips.length} клипов</span></div>
       </section>
       <section className="clips-filters" aria-label="Фильтры клипов">
-        <div className="clips-filter-group">
-          <span>Канал</span>
-          {[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => (
-            <button key={value} className={filters.channel === value ? 'selected' : ''} onClick={() => updateFilter('channel', value)}>{label}</button>
-          ))}
+        <div className="clips-primary-filters">
+          <div className="clips-filter-group">
+            <span>Канал</span>
+            {[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => (
+              <button key={value} className={filters.channel === value ? 'selected' : ''} onClick={() => updateFilter('channel', value)}>{label}</button>
+            ))}
+          </div>
+          <div className="clips-filter-group clips-periods">
+            <span>Период</span>
+            {[['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время'], ['custom', 'Свой период']].map(([value, label]) => (
+              <button key={value} className={filters.period === value ? 'selected' : ''} onClick={() => updateFilter('period', value)}>{label}</button>
+            ))}
+          </div>
         </div>
-        <div className="clips-filter-group clips-periods">
-          <span>Период</span>
-          {[['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время'], ['custom', 'Свой период']].map(([value, label]) => (
-            <button key={value} className={filters.period === value ? 'selected' : ''} onClick={() => updateFilter('period', value)}>{label}</button>
-          ))}
-        </div>
-        {filters.period === 'custom' && <div className="clips-date-range">
-          <label>От <input type="date" value={filters.from} onChange={(event) => updateFilter('from', event.target.value)} /></label>
-          <label>До <input type="date" value={filters.to} onChange={(event) => updateFilter('to', event.target.value)} /></label>
-        </div>}
-        <div className="clips-extra-filters">
-          <label>Минимум просмотров<input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /></label>
+        <div className="clips-toolbar">
+          <label className="clips-min-views">Минимум просмотров<input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /></label>
           <label className="clips-deduplicate"><input type="checkbox" checked={hideDuplicates} onChange={(event) => setHideDuplicates(event.target.checked)} /><span>Скрывать клипы с одного момента</span></label>
+          <div className="clips-sort"><label>Сортировка<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label><button onClick={() => setSortDirection((current) => current === 'desc' ? 'asc' : 'desc')} aria-label={sortDirection === 'desc' ? 'Сортировать по возрастанию' : 'Сортировать по убыванию'} title={sortDirection === 'desc' ? 'Сейчас по убыванию' : 'Сейчас по возрастанию'}>{sortDirection === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button></div>
         </div>
-        <div className="clips-sort"><label>Сортировка<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label><button onClick={() => setSortDirection((current) => current === 'desc' ? 'asc' : 'desc')} aria-label={sortDirection === 'desc' ? 'Сортировать по возрастанию' : 'Сортировать по убыванию'} title={sortDirection === 'desc' ? 'Сейчас по убыванию' : 'Сейчас по возрастанию'}>{sortDirection === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button></div>
+        {filters.period === 'custom' && <div className="clips-date-range"><label>От <input type="date" value={filters.from} onChange={(event) => updateFilter('from', event.target.value)} /></label><label>До <input type="date" value={filters.to} onChange={(event) => updateFilter('to', event.target.value)} /></label></div>}
       </section>
       {loading && <div className="clips-state"><span className="clips-loader" />Загружаем клипы Twitch…</div>}
       {!loading && error && <div className="clips-state error"><Clapperboard size={28} /><strong>Не удалось получить клипы</strong><span>{error}</span></div>}
       {!loading && !error && !visibleClips.length && <div className="clips-state"><Clapperboard size={28} /><strong>Под эти фильтры клипов нет</strong><span>Уменьшите минимум просмотров или выберите другой период.</span></div>}
       {!loading && !error && visibleClips.length > 0 && <section className="clips-grid">
-        {displayedClips.map((clip) => <button key={clip.id} className="clip-card" onClick={() => setSelected(clip)} aria-label={`Смотреть клип «${clip.title}»`}>
-          <div className="clip-thumbnail">
-            <img src={clip.thumbnail_url} alt="" loading="lazy" />
-            <span className="clip-play"><Play size={22} fill="currentColor" /></span>
-            <span className="clip-duration">{Number(clip.duration || 0).toFixed(1).replace('.0', '')} с</span>
-            <span className="clip-views"><Eye size={12} /> {Number(clip.view_count || 0).toLocaleString('ru-RU')}</span>
-          </div>
-          <div className="clip-card-body"><h2>{clip.title}</h2><div><span>{clip.broadcaster_name}</span><time>{new Date(clip.created_at).toLocaleDateString('ru-RU')}</time></div><small>Автор клипа: {clip.creator_name}</small></div>
-        </button>)}
+        {displayedClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} onOpen={setSelected} />)}
       </section>}
-      {!loading && !error && displayedClips.length < visibleClips.length && <button className="clips-load-more" onClick={() => setVisibleCount((current) => current + 48)}>Показать ещё <span>{visibleClips.length - displayedClips.length}</span></button>}
+      {!loading && !error && displayedClips.length < visibleClips.length && <button className="clips-load-more" onClick={loadMore}>Показать ещё <span>{visibleClips.length - displayedClips.length}</span></button>}
       {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
     </main>
   );
@@ -2448,7 +2507,7 @@ function App() {
     }));
   };
   let page;
-  if (route === 'home') page = <StreamerHome streamer={state.streamer} />;
+  if (route === 'home') page = <StreamerHome streamer={state.streamer} navigate={navigate} />;
   else if (route === 'clips') page = <TwitchClipsView />;
   else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
@@ -2458,7 +2517,7 @@ function App() {
   else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} onContentUpdate={updateSubmissionContent} onMovieUpdate={updateMovieMetadata} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (['rules', 'privacy', 'terms'].includes(route)) page = <LegalView kind={route} />;
-  else page = <StreamerHome streamer={state.streamer} />;
+  else page = <StreamerHome streamer={state.streamer} navigate={navigate} />;
 
   return (
     <div className="app-shell">
