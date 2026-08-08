@@ -6,6 +6,8 @@ import {
   ArrowUpRight,
   Bell,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   Clock3,
   ExternalLink,
@@ -888,6 +890,7 @@ function StreamClipsStrip({ streamer, navigate }) {
   const [clips, setClips] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [clipScroll, setClipScroll] = useState({ left: false, right: false });
   const clipsRowRef = useRef(null);
   useEffect(() => {
     let active = true;
@@ -911,23 +914,35 @@ function StreamClipsStrip({ streamer, navigate }) {
   const hasCurrentStreamClips = Boolean(streamer?.live && streamer?.started_at && streamClips.some((clip) => (
     new Date(clip.created_at) >= new Date(streamer.started_at)
   )));
+  const updateClipScroll = useCallback(() => {
+    const row = clipsRowRef.current;
+    if (!row) return;
+    const maximum = Math.max(0, row.scrollWidth - row.clientWidth);
+    setClipScroll({ left: row.scrollLeft > 4, right: row.scrollLeft < maximum - 4 });
+  }, []);
   useEffect(() => {
     const row = clipsRowRef.current;
     if (!row) return undefined;
-    const scrollWithWheel = (event) => {
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-      const maximum = row.scrollWidth - row.clientWidth;
-      const next = Math.max(0, Math.min(maximum, row.scrollLeft + event.deltaY));
-      if (next === row.scrollLeft) return;
-      event.preventDefault();
-      row.scrollLeft = next;
-    };
-    row.addEventListener('wheel', scrollWithWheel, { passive: false });
-    return () => row.removeEventListener('wheel', scrollWithWheel);
-  }, [loading, streamClips.length]);
+    updateClipScroll();
+    row.addEventListener('scroll', updateClipScroll, { passive: true });
+    const observer = new ResizeObserver(updateClipScroll);
+    observer.observe(row);
+    return () => { row.removeEventListener('scroll', updateClipScroll); observer.disconnect(); };
+  }, [loading, streamClips.length, updateClipScroll]);
   useEffect(() => {
-    if (clipsRowRef.current) clipsRowRef.current.scrollLeft = 0;
-  }, [channel]);
+    const row = clipsRowRef.current;
+    if (!row) return;
+    const previousBehavior = row.style.scrollBehavior;
+    row.style.scrollBehavior = 'auto';
+    row.scrollLeft = 0;
+    row.style.scrollBehavior = previousBehavior;
+    setClipScroll({ left: false, right: row.scrollWidth > row.clientWidth + 4 });
+  }, [channel, updateClipScroll]);
+  const scrollClips = (direction) => {
+    const row = clipsRowRef.current;
+    if (!row) return;
+    row.scrollBy({ left: direction * Math.max(260, row.clientWidth * 0.8), behavior: 'smooth' });
+  };
   return <section className="home-clips-section">
     <header>
       <div><span className="panel-kicker">TWITCH-КЛИПЫ</span><h2>{channel === 'all' ? 'Клипы прошлых стримов' : (hasCurrentStreamClips ? 'Клипы текущего стрима' : 'Клипы прошлого стрима')}</h2><p>{channel === 'all' ? 'Последние стримы с двух каналов — RavshanN и ravshanbtw' : `Последний доступный стрим канала ${channel === 'ravshann' ? 'RavshanN' : 'ravshanbtw'}`}</p></div>
@@ -941,7 +956,7 @@ function StreamClipsStrip({ streamer, navigate }) {
     </div>
     {loading && <div className="home-clips-loading"><span className="clips-loader" /> Загружаем клипы…</div>}
     {!loading && !streamClips.length && <div className="home-clips-empty">Для выбранного канала и фильтров клипов пока нет.</div>}
-    {!loading && streamClips.length > 0 && <div className="home-clips-row" ref={clipsRowRef}>{streamClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} compact onOpen={setSelected} />)}</div>}
+    {!loading && streamClips.length > 0 && <div className="home-clips-carousel">{clipScroll.left && <button type="button" className="home-clips-arrow is-left" onClick={() => scrollClips(-1)} aria-label="Предыдущие клипы"><ChevronLeft size={23} /></button>}<div className="home-clips-row" ref={clipsRowRef}>{streamClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} compact onOpen={setSelected} />)}</div>{clipScroll.right && <button type="button" className="home-clips-arrow is-right" onClick={() => scrollClips(1)} aria-label="Следующие клипы"><ChevronRight size={23} /></button>}</div>}
     {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
   </section>;
 }
