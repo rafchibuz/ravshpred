@@ -182,14 +182,19 @@ export async function loadWorkspace(role) {
     const legacySocialLinks = Object.entries(legacySocials)
       .filter(([, url]) => url)
       .map(([name, url]) => ({ name: name === 'vk' ? 'VK' : `${name.charAt(0).toUpperCase()}${name.slice(1)}`, url }));
+    const socialLinks = (settings.data.social_links?.length ? settings.data.social_links : legacySocialLinks)
+      .map((item) => ({ ...item, section: item.section || 'primary' }));
+    const supportLinks = (settings.data.support_links || [])
+      .map((item) => ({ ...item, section: 'support' }));
     result.settings = {
       dailyLimit: settings.data.submission_daily_limit,
       commentLimit: settings.data.submission_comment_limit,
       publicFeed: settings.data.public_feed_enabled,
       allowSelfVote: settings.data.allow_self_vote,
       socials: legacySocials,
-      socialLinks: settings.data.social_links?.length ? settings.data.social_links : legacySocialLinks,
-      supportLinks: settings.data.support_links || [],
+      socialLinks,
+      supportLinks,
+      siteLinks: [...socialLinks, ...supportLinks],
     };
     result.userStats = users.data || [];
   }
@@ -284,6 +289,7 @@ export function readAllNotifications() {
 }
 
 export function updateSettings(settings) {
+  const siteLinks = settings.siteLinks || [];
   return request('/owner/settings', {
     method: 'PUT',
     body: {
@@ -292,8 +298,8 @@ export function updateSettings(settings) {
       public_feed_enabled: settings.publicFeed,
       allow_self_vote: Boolean(settings.allowSelfVote),
       socials: settings.socials || {},
-      social_links: settings.socialLinks || [],
-      support_links: settings.supportLinks || [],
+      social_links: siteLinks.filter((item) => item.section !== 'support'),
+      support_links: siteLinks.filter((item) => item.section === 'support'),
     },
   });
 }

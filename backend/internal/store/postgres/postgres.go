@@ -875,11 +875,19 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 	}
 	if !hasSocialItems {
 		result.SocialItems = nil
-		for _, item := range []domain.SocialItem{{"Twitch", result.Socials.Twitch}, {"YouTube", result.Socials.YouTube}, {"Telegram", result.Socials.Telegram}, {"VK", result.Socials.VK}} {
+		for _, item := range []domain.SocialItem{{Name: "Twitch", URL: result.Socials.Twitch}, {Name: "YouTube", URL: result.Socials.YouTube}, {Name: "Telegram", URL: result.Socials.Telegram}, {Name: "VK", URL: result.Socials.VK}} {
 			if item.URL != "" {
 				result.SocialItems = append(result.SocialItems, item)
 			}
 		}
+	}
+	for index := range result.SocialItems {
+		if result.SocialItems[index].Section == "" {
+			result.SocialItems[index].Section = "primary"
+		}
+	}
+	for index := range result.SupportItems {
+		result.SupportItems[index].Section = "support"
 	}
 	return result, rows.Err()
 }

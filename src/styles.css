@@ -278,11 +278,21 @@
 .social-directory a:hover > svg { transform: translate(3px, -3px); }
 .social-directory-empty { min-height: 72px; display: flex; align-items: center; color: #756e78; font-size: 10px; }
 .social-settings-list { display: grid; gap: 9px; margin-top: 8px; }
-.social-setting-row { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(240px, 1.3fr) 72px; gap: 12px; align-items: end; padding: 12px; border: 1px solid #342e3a; border-radius: 8px; }
+.social-setting-row { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(240px, 1.3fr) minmax(150px, .65fr); gap: 12px; align-items: end; padding: 12px; border: 1px solid #342e3a; border-radius: 8px; }
 .social-setting-row label { min-width: 0; margin: 0; }
 .social-setting-row input { width: 100%; min-width: 0; }
 .social-setting-row .danger-btn { width: 72px; min-height: 38px; }
 .social-settings-list > .ghost-btn { width: fit-content; }
+.settings-help { margin: 5px 0 10px; color: #77717d; font-size: 9px; }
+.link-order-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; }
+.link-order-actions > button:not(.danger-btn) { width: 32px; min-height: 30px; border: 1px solid #3c3543; border-radius: 6px; color: #c9bdcf; background: #201c24; }
+.link-order-actions > button:disabled { opacity: .3; cursor: not-allowed; }
+.link-order-actions .danger-btn { width: auto; min-height: 30px; }
+.link-directory-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.link-directory-pair .social-directory-section { min-width: 0; margin-top: 0; }
+.link-directory-pair + .social-directory-section { margin-top: 14px; }
+.social-directory-section.is-compact > header h2 { font-size: clamp(23px, 2.7vw, 34px); }
+.social-directory-section.is-compact .social-directory a { grid-template-columns: 38px minmax(0, 1fr) 20px; gap: 12px; }
 
 .queue-item { grid-template-columns: 105px minmax(0, 1fr); align-items: start; }
 .queue-item .thumb { grid-row: 1 / span 2; }
@@ -303,6 +313,10 @@
 @media (max-width: 760px) {
   .social-setting-row { grid-template-columns: 1fr; }
   .social-setting-row .danger-btn { width: 100%; }
+}
+
+@media (max-width: 900px) {
+  .link-directory-pair { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {

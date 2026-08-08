@@ -797,13 +797,14 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	validSocials := len(input.SocialItems) <= 12
 	for _, item := range input.SocialItems {
-		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" {
+		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" ||
+			(item.Section != "primary" && item.Section != "more" && item.Section != "clips") {
 			validSocials = false
 		}
 	}
 	validSupport := len(input.SupportItems) <= 12
 	for _, item := range input.SupportItems {
-		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" {
+		if len([]rune(strings.TrimSpace(item.Name))) < 1 || len([]rune(strings.TrimSpace(item.Name))) > 40 || !validOptionalURL(item.URL) || strings.TrimSpace(item.URL) == "" || item.Section != "support" {
 			validSupport = false
 		}
 	}

@@ -97,7 +97,7 @@ function makeInitialState() {
   return {
     categories: ['Без категории', 'Смешное', 'Трейлеры', 'Фильмы и сериалы', 'Разоблачения'],
     moderators: ['moderator_live', 'lexapro_tv', 'shadowmff'],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [], supportLinks: [] },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [], supportLinks: [], siteLinks: [] },
     streamer: null,
     userStats: [],
     videos: [
@@ -332,7 +332,7 @@ function emptyServerState() {
     news: [],
     audit: [],
     auditRecords: [],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [], supportLinks: [] },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [], supportLinks: [], siteLinks: [] },
     streamer: null,
     userStats: [],
   };
@@ -637,10 +637,10 @@ function formatStreamDuration(startedAt, now) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
-function LinkDirectory({ title, links }) {
+function LinkDirectory({ title, links, compact = false }) {
   const items = links || [];
   return (
-    <section className="stream-socials social-directory-section">
+    <section className={`stream-socials social-directory-section ${compact ? 'is-compact' : ''}`}>
       <header><h2>{title}</h2><span>{String(items.length).padStart(2, '0')}</span></header>
       <div className="social-directory">
         {items.map((item, index) => (
@@ -666,12 +666,15 @@ function StreamerHome({ streamer }) {
   const parent = window.location.hostname || 'localhost';
   const socials = streamer.socials || {};
   const links = (streamer.social_links?.length ? streamer.social_links : [
-    { name: 'Twitch', url: socials.twitch || 'https://www.twitch.tv/ravshann' },
-    { name: 'YouTube', url: socials.youtube },
-    { name: 'Telegram', url: socials.telegram },
-    { name: 'VK', url: socials.vk },
-  ]).filter((item) => item.url);
+    { name: 'Twitch', url: socials.twitch || 'https://www.twitch.tv/ravshann', section: 'primary' },
+    { name: 'YouTube', url: socials.youtube, section: 'primary' },
+    { name: 'Telegram', url: socials.telegram, section: 'primary' },
+    { name: 'VK', url: socials.vk, section: 'primary' },
+  ]).filter((item) => item.url).map((item) => ({ ...item, section: item.section || 'primary' }));
   const supportLinks = (streamer.support_links || []).filter((item) => item.url);
+  const primaryLinks = links.filter((item) => item.section === 'primary');
+  const moreLinks = links.filter((item) => item.section === 'more');
+  const clipsLinks = links.filter((item) => item.section === 'clips');
   return (
     <main className="main-content stream-home">
       <section className={`streamer-hero streamer-cinema ${streamer.live ? 'is-live' : ''}`}>
@@ -713,7 +716,11 @@ function StreamerHome({ streamer }) {
         </div>
       </div>}
       </section>
-      <LinkDirectory title="Соцсети" links={links} />
+      <LinkDirectory title="Основные соцсети" links={primaryLinks} />
+      <div className="link-directory-pair">
+        <LinkDirectory title="Больше контента" links={moreLinks} compact />
+        <LinkDirectory title="Нарезки со стримов" links={clipsLinks} compact />
+      </div>
       <LinkDirectory title="Поддержка" links={supportLinks} />
     </main>
   );
@@ -1549,6 +1556,21 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
   const [categoryDeleteArmed, setCategoryDeleteArmed] = useState('');
   const [settings, setSettings] = useState(state.settings);
   useEffect(() => setSettings(state.settings), [state.settings]);
+  const updateSiteLink = (index, patch) => setSettings((current) => ({
+    ...current,
+    siteLinks: (current.siteLinks || []).map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item),
+  }));
+  const moveSiteLink = (index, direction) => setSettings((current) => {
+    const links = [...(current.siteLinks || [])];
+    let target = index + direction;
+    while (target >= 0 && target < links.length && links[target].section !== links[index].section) target += direction;
+    if (target < 0 || target >= links.length) return current;
+    [links[index], links[target]] = [links[target], links[index]];
+    return { ...current, siteLinks: links };
+  });
+  const canMoveSiteLink = (index, direction) => (settings.siteLinks || []).some((item, itemIndex) => (
+    direction < 0 ? itemIndex < index : itemIndex > index
+  ) && item.section === settings.siteLinks[index].section);
 
   const addModerator = async () => {
     const value = moderator.trim().replace(/^@/, '');
@@ -1719,35 +1741,33 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
             <input type="checkbox" checked={Boolean(settings.allowSelfVote)} onChange={(event) => setSettings({ ...settings, allowSelfVote: event.target.checked })} />
             Разрешить голосовать за собственные видео
           </label>
-          <h3>Социальные сети Равшана</h3>
+          <h3>Ссылки на главной</h3>
+          <p className="settings-help">Выбери раздел для каждой ссылки и настрой порядок стрелками.</p>
           <div className="social-settings-list">
-            {(settings.socialLinks || []).map((item, index) => (
+            {(settings.siteLinks || []).map((item, index) => (
               <div className="social-setting-row" key={index}>
                 <label>Название
-                  <input value={item.name} maxLength={40} placeholder="Telegram" onChange={(event) => setSettings({ ...settings, socialLinks: settings.socialLinks.map((link, linkIndex) => linkIndex === index ? { ...link, name: event.target.value } : link) })} />
+                  <input value={item.name} maxLength={40} placeholder="Telegram" onChange={(event) => updateSiteLink(index, { name: event.target.value })} />
                 </label>
                 <label>Ссылка
-                  <input type="url" value={item.url} placeholder="https://..." onChange={(event) => setSettings({ ...settings, socialLinks: settings.socialLinks.map((link, linkIndex) => linkIndex === index ? { ...link, url: event.target.value } : link) })} />
+                  <input type="url" value={item.url} placeholder="https://..." onChange={(event) => updateSiteLink(index, { url: event.target.value })} />
                 </label>
-                <button type="button" className="danger-btn" onClick={() => setSettings({ ...settings, socialLinks: settings.socialLinks.filter((_, linkIndex) => linkIndex !== index) })}>Удалить</button>
+                <label>Раздел
+                  <select value={item.section || 'primary'} onChange={(event) => updateSiteLink(index, { section: event.target.value })}>
+                    <option value="primary">Основные</option>
+                    <option value="more">Больше контента</option>
+                    <option value="clips">Нарезки</option>
+                    <option value="support">Поддержка</option>
+                  </select>
+                </label>
+                <div className="link-order-actions">
+                  <button type="button" disabled={!canMoveSiteLink(index, -1)} onClick={() => moveSiteLink(index, -1)} aria-label="Поднять ссылку">↑</button>
+                  <button type="button" disabled={!canMoveSiteLink(index, 1)} onClick={() => moveSiteLink(index, 1)} aria-label="Опустить ссылку">↓</button>
+                  <button type="button" className="danger-btn" onClick={() => setSettings({ ...settings, siteLinks: settings.siteLinks.filter((_, linkIndex) => linkIndex !== index) })}>Удалить</button>
+                </div>
               </div>
             ))}
-            <button type="button" className="ghost-btn" onClick={() => setSettings({ ...settings, socialLinks: [...(settings.socialLinks || []), { name: '', url: '' }] })}><Plus size={14} /> Добавить соцсеть</button>
-          </div>
-          <h3>Поддержка проекта</h3>
-          <div className="social-settings-list">
-            {(settings.supportLinks || []).map((item, index) => (
-              <div className="social-setting-row" key={index}>
-                <label>Название
-                  <input value={item.name} maxLength={40} placeholder="DonationAlerts" onChange={(event) => setSettings({ ...settings, supportLinks: settings.supportLinks.map((link, linkIndex) => linkIndex === index ? { ...link, name: event.target.value } : link) })} />
-                </label>
-                <label>Ссылка
-                  <input type="url" value={item.url} placeholder="https://..." onChange={(event) => setSettings({ ...settings, supportLinks: settings.supportLinks.map((link, linkIndex) => linkIndex === index ? { ...link, url: event.target.value } : link) })} />
-                </label>
-                <button type="button" className="danger-btn" onClick={() => setSettings({ ...settings, supportLinks: settings.supportLinks.filter((_, linkIndex) => linkIndex !== index) })}>Удалить</button>
-              </div>
-            ))}
-            <button type="button" className="ghost-btn" onClick={() => setSettings({ ...settings, supportLinks: [...(settings.supportLinks || []), { name: '', url: '' }] })}><Plus size={14} /> Добавить ссылку поддержки</button>
+            <button type="button" className="ghost-btn" onClick={() => setSettings({ ...settings, siteLinks: [...(settings.siteLinks || []), { name: '', url: '', section: 'primary' }] })}><Plus size={14} /> Добавить ссылку</button>
           </div>
           <button
             className="primary-btn"

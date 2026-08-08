@@ -118,8 +118,9 @@ type GlobalSettings struct {
 }
 
 type SocialItem struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Section string `json:"section,omitempty"`
 }
 
 type SocialLinks struct {
