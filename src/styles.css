@@ -137,6 +137,21 @@
 .rank-row:hover, .rank-row:focus-visible { background: #24202a; outline: none; }
 .manage-video-btn { width: 100%; min-height: 34px; margin-top: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #71469d; border-radius: 7px; background: #291a39; color: #d5afff; font-size: 10px; font-weight: 800; }
 .manage-video-btn:hover { border-color: #a75cff; background: #39204f; color: #fff; }
+.video-card { height: 100%; }
+.video-card:not(.video-card-list) { display: flex; flex-direction: column; }
+.video-card .card-body { display: flex; flex: 1; flex-direction: column; }
+.video-card .card-body h3 {
+  min-height: 2.4em;
+  max-height: 2.4em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.video-card .channel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-card .metrics { margin-top: auto; }
+.card-footer { min-height: 34px; margin-top: 10px; display: flex; align-items: center; }
+.card-footer .login-hint, .card-footer .manage-video-btn { margin-top: 0; }
 .queue-item .thumb { aspect-ratio: auto; }
 .review .thumb-large { height: 260px; aspect-ratio: auto; }
 

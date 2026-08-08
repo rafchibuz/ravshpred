@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   can,
   isDuplicate,
+  newPendingSubmissions,
   parseYouTubeId,
   recentSubmissionCount,
   removeCategory,
@@ -23,6 +24,15 @@ test('парсер понимает основные форматы YouTube URL'
 test('дубликат определяется по YouTube ID', () => {
   assert.equal(isDuplicate([{ youtubeId: 'dQw4w9WgXcQ', status: 'approved' }], 'dQw4w9WgXcQ'), true);
   assert.equal(isDuplicate([{ youtubeId: 'dQw4w9WgXcQ', status: 'hidden' }], 'dQw4w9WgXcQ'), false);
+});
+
+test('звуковое уведомление выбирает только новые pending-видео', () => {
+  const videos = [
+    { id: 'old', status: 'pending' },
+    { id: 'new', status: 'pending' },
+    { id: 'approved', status: 'approved' },
+  ];
+  assert.deepEqual(newPendingSubmissions(new Set(['old']), videos), [{ id: 'new', status: 'pending' }]);
 });
 
 test('суточный лимит считает только последние 24 часа', () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowUpRight,
@@ -33,6 +33,7 @@ import {
 import {
   can,
   isDuplicate,
+  newPendingSubmissions,
   parseYouTubeId,
   recentSubmissionCount,
   removeCategory,
@@ -42,12 +43,39 @@ import * as api from './api.js';
 import './styles.css';
 
 const STORAGE_KEY = 'ravshann-predlozhka-local-v3';
+const MODERATION_POLL_INTERVAL = 15000;
 const ROLE_LABELS = {
   guest: 'Гость',
   user: 'Пользователь',
   moderator: 'Модератор',
   owner: 'Основатель',
 };
+
+function playNewSubmissionSound(audioContextRef) {
+  const context = audioContextRef.current;
+  if (!context || context.state === 'closed') return;
+
+  const play = () => {
+    const start = context.currentTime;
+    [0, 0.16].forEach((offset, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(index === 0 ? 740 : 988, start + offset);
+      gain.gain.setValueAtTime(0.0001, start + offset);
+      gain.gain.exponentialRampToValueAtTime(0.13, start + offset + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.14);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start + offset);
+      oscillator.stop(start + offset + 0.15);
+    });
+  };
+
+  if (context.state === 'suspended') context.resume().then(play).catch(() => {});
+  else play();
+}
+
 const STATUS_LABELS = {
   pending: 'На рассмотрении',
   approved: 'Одобрено',
@@ -568,11 +596,15 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
             </button>
           </div>
         </div>
-        {!can(role, 'vote') && <div className="login-hint">Войдите через Twitch, чтобы голосовать</div>}
-        {can(role, 'moderate') && (
-          <button className="manage-video-btn" onClick={() => onManage(video)}>
-            <ShieldCheck size={14} /> Отсмотрено / удалить
-          </button>
+        {(!can(role, 'vote') || can(role, 'moderate')) && (
+          <div className="card-footer">
+            {!can(role, 'vote') && <div className="login-hint">Войдите через Twitch, чтобы голосовать</div>}
+            {can(role, 'moderate') && (
+              <button className="manage-video-btn" onClick={() => onManage(video)}>
+                <ShieldCheck size={14} /> Отсмотрено / удалить
+              </button>
+            )}
+          </div>
         )}
       </div>
     </article>
@@ -1570,6 +1602,8 @@ function App() {
   const [search, setSearch] = useState('');
   const [authOpen, setAuthOpen] = useState(false);
   const [toast, setToast] = useState('');
+  const moderationAudioRef = useRef(null);
+  const pendingSubmissionIdsRef = useRef(new Set());
   const actor = sessionUser
     ? {
         id: sessionUser.id,
@@ -1595,11 +1629,67 @@ function App() {
       });
   }, []);
 
-  const notify = (message) => {
+  const notify = useCallback((message) => {
     setToast(message);
     window.clearTimeout(window.__ravshannToast);
     window.__ravshannToast = window.setTimeout(() => setToast(''), 2800);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!can(role, 'moderate')) return undefined;
+    const armAudio = () => {
+      if (!moderationAudioRef.current || moderationAudioRef.current.state === 'closed') {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) moderationAudioRef.current = new AudioContextClass();
+      }
+      moderationAudioRef.current?.resume().catch(() => {});
+    };
+    window.addEventListener('pointerdown', armAudio, { once: true });
+    window.addEventListener('keydown', armAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', armAudio);
+      window.removeEventListener('keydown', armAudio);
+    };
+  }, [role]);
+
+  useEffect(() => {
+    if (!can(role, 'moderate') || !apiReady) return undefined;
+    let active = true;
+    pendingSubmissionIdsRef.current = new Set(
+      state.videos.filter((video) => video.status === 'pending').map((video) => video.id),
+    );
+
+    const pollPending = async () => {
+      try {
+        const pending = await api.loadPendingSubmissions();
+        if (!active) return;
+        const additions = newPendingSubmissions(pendingSubmissionIdsRef.current, pending);
+        pendingSubmissionIdsRef.current = new Set(pending.map((video) => video.id));
+        if (!additions.length) return;
+
+        setState((current) => {
+          const existingIds = new Set(current.videos.map((video) => video.id));
+          return {
+            ...current,
+            videos: [...additions.filter((video) => !existingIds.has(video.id)), ...current.videos],
+          };
+        });
+        playNewSubmissionSound(moderationAudioRef);
+        notify(additions.length === 1
+          ? 'Новое видео поступило на рассмотрение'
+          : `Новых видео на рассмотрении: ${additions.length}`);
+      } catch {
+        // Следующая фоновая проверка повторит запрос без вмешательства пользователя.
+      }
+    };
+
+    const timer = window.setInterval(pollPending, MODERATION_POLL_INTERVAL);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [apiReady, role]);
+
   const vote = async (id, direction) => {
     if (!can(role, 'vote')) return setAuthOpen(true);
     if (!apiReady) return notify('Сервер временно недоступен');

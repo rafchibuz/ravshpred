@@ -44,6 +44,11 @@ export function recentSubmissionCount(videos, authorId, now = Date.now()) {
   ).length;
 }
 
+export function newPendingSubmissions(knownIds, videos) {
+  const known = knownIds instanceof Set ? knownIds : new Set(knownIds || []);
+  return videos.filter((video) => video.status === 'pending' && !known.has(video.id));
+}
+
 export function can(role, action) {
   const matrix = {
     guest: ['view_feed', 'open_video'],

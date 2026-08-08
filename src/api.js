@@ -185,6 +185,11 @@ export function createSubmission(input) {
     .then((payload) => normalizeVideo(payload.data));
 }
 
+export async function loadPendingSubmissions() {
+  const payload = await request('/moderation/submissions?status=pending&limit=100');
+  return (payload.data || []).map(normalizeVideo);
+}
+
 export function vote(videoId, value) {
   return request(`/videos/${videoId}/vote`, { method: 'PUT', body: { value } });
 }
