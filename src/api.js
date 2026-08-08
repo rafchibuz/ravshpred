@@ -195,6 +195,10 @@ export async function loadPendingSubmissions() {
   return (payload.data || []).map(normalizeVideo);
 }
 
+export function loadStreamer() {
+  return request('/streamer').then((payload) => payload.data || null);
+}
+
 export function vote(videoId, value) {
   return request(`/videos/${videoId}/vote`, { method: 'PUT', body: { value } });
 }

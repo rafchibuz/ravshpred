@@ -406,7 +406,8 @@ function Logo() {
 
 function Sidebar({ route, navigate, role, unread, actor }) {
   const nav = [
-    { key: 'feed', label: 'Главная', icon: Home },
+    { key: 'home', label: 'Главная', icon: Home },
+    { key: 'feed', label: 'Предложка', icon: Play },
     { key: 'news', label: 'Новости', icon: Newspaper },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
     ...(can(role, 'view_profile')
@@ -616,7 +617,21 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
   );
 }
 
-function StreamerHero({ streamer }) {
+function formatStreamDuration(startedAt, now) {
+  if (!startedAt) return '—';
+  const seconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+}
+
+function StreamerHome({ streamer }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   if (!streamer) return null;
   const parent = window.location.hostname || 'localhost';
   const socials = streamer.socials || {};
@@ -627,30 +642,44 @@ function StreamerHero({ streamer }) {
     ['VK', socials.vk],
   ].filter(([, url]) => url);
   return (
-    <section className={`streamer-hero ${streamer.live ? 'is-live' : ''}`}>
-      <div className="streamer-summary">
-        <Avatar src={streamer.avatar_url} name={streamer.display_name || 'RavshanN'} />
-        <div>
-          <span className="stream-state"><i /> {streamer.live ? 'СЕЙЧАС В ЭФИРЕ' : 'СЕЙЧАС НЕ В ЭФИРЕ'}</span>
-          <h2>{streamer.display_name || 'RavshanN'}</h2>
-          <p>{streamer.live ? streamer.title : 'Предложка, новости, эфиры и лучшие моменты сообщества'}</p>
-          {streamer.live && <small>{streamer.game_name || 'Twitch'} · {Number(streamer.viewer_count || 0).toLocaleString('ru-RU')} зрителей</small>}
-        </div>
-        <div className="social-links">
-          {links.map(([label, url]) => <a key={label} href={url} target="_blank" rel="noreferrer">{label} <ExternalLink size={12} /></a>)}
-        </div>
-      </div>
+    <main className="main-content stream-home">
+      <section className={`streamer-hero streamer-cinema ${streamer.live ? 'is-live' : ''}`}>
       {streamer.live && (
-        <div className="twitch-embed-grid">
+        <div className="twitch-cinema-grid">
           <iframe title="Стрим RavshanN" src={`https://player.twitch.tv/?channel=ravshann&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen />
           <iframe title="Чат RavshanN" src={`https://www.twitch.tv/embed/ravshann/chat?parent=${encodeURIComponent(parent)}&darkpopout`} />
         </div>
       )}
-    </section>
+      {!streamer.live && (
+        <div className="stream-offline">
+          <Avatar src={streamer.avatar_url} name={streamer.display_name || 'RavshanN'} />
+          <span className="stream-state"><i /> СЕЙЧАС НЕ В ЭФИРЕ</span>
+          <h1>{streamer.display_name || 'RavshanN'}</h1>
+          <p>Когда эфир начнётся, здесь автоматически появятся плеер и чат.</p>
+        </div>
+      )}
+      <div className="stream-info-bar">
+        <div className="stream-channel-info">
+          <Avatar src={streamer.avatar_url} name={streamer.display_name || 'RavshanN'} />
+          <div><h1>{streamer.display_name || 'RavshanN'}</h1><strong>{streamer.live ? streamer.title : 'Канал сейчас офлайн'}</strong><span>{streamer.game_name || 'Twitch'}</span></div>
+        </div>
+        <div className="stream-live-metrics">
+          <span className="stream-state"><i /> {streamer.live ? 'В ЭФИРЕ' : 'ОФЛАЙН'}</span>
+          {streamer.live && <><b>{Number(streamer.viewer_count || 0).toLocaleString('ru-RU')} онлайн</b><time>{formatStreamDuration(streamer.started_at, now)}</time></>}
+        </div>
+      </div>
+      </section>
+      <section className="stream-socials">
+        <div><span className="panel-kicker">СОЦИАЛЬНЫЕ СЕТИ</span><h2>RavshanN в интернете</h2></div>
+        <div className="social-links">
+          {links.map(([label, url]) => <a key={label} href={url} target="_blank" rel="noreferrer">{label} <ExternalLink size={12} /></a>)}
+        </div>
+      </section>
+    </main>
   );
 }
 
-function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin, streamer }) {
+function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin }) {
   const [category, setCategory] = useState('Все');
   const [watchedOnly, setWatchedOnly] = useState(false);
   const [visibleStatuses, setVisibleStatuses] = useState(['approved']);
@@ -685,7 +714,6 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
 
   return (
     <main className="main-content">
-      <StreamerHero streamer={streamer} />
       <section className="page-heading">
         <div>
           <div className="eyebrow">
@@ -1690,7 +1718,7 @@ function AccessDenied({ role, onAccess }) {
 }
 
 function App() {
-  const defaultRoute = 'feed';
+  const defaultRoute = 'home';
   const [route, navigate] = useRoute(defaultRoute);
   const [role, setRole] = useState('guest');
   const [sessionUser, setSessionUser] = useState(null);
@@ -1724,6 +1752,15 @@ function App() {
         setRole('guest');
       });
   }, []);
+
+  useEffect(() => {
+    if (!apiReady) return undefined;
+    const refreshStreamer = () => api.loadStreamer()
+      .then((streamer) => setState((current) => ({ ...current, streamer })))
+      .catch(() => {});
+    const timer = window.setInterval(refreshStreamer, 60000);
+    return () => window.clearInterval(timer);
+  }, [apiReady]);
 
   const notify = useCallback((message) => {
     setToast(message);
@@ -1838,7 +1875,7 @@ function App() {
     await api.logout().catch(() => {});
     setSessionUser(null);
     setRole('guest');
-    navigate('feed');
+    navigate('home');
     notify('Вы вышли из аккаунта');
   };
   const deleteVideo = async (id) => {
@@ -1973,7 +2010,8 @@ function App() {
     }));
   };
   let page;
-  if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} streamer={state.streamer} />;
+  if (route === 'home') page = <StreamerHome streamer={state.streamer} />;
+  else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} onAccess={openAuth} />;
@@ -1981,7 +2019,7 @@ function App() {
   else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (['rules', 'privacy', 'terms'].includes(route)) page = <LegalView kind={route} />;
-  else page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} streamer={state.streamer} />;
+  else page = <StreamerHome streamer={state.streamer} />;
 
   return (
     <div className="app-shell">
