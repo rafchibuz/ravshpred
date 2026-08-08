@@ -252,6 +252,8 @@
 .stream-live-metrics { display: flex; align-items: center; gap: 15px; white-space: nowrap; }
 .stream-live-metrics b { color: #ef5470; font-size: 11px; }
 .stream-live-metrics time { min-width: 57px; color: #d7d1db; font-variant-numeric: tabular-nums; font-size: 11px; }
+.stream-open-link { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid #5c3a73; border-radius: 7px; color: #d7a8fb; background: #24172c; font-size: 9px; font-weight: 700; text-decoration: none; }
+.stream-open-link:hover { border-color: #a75ae4; color: #fff; background: #482162; }
 .stream-offline { display: grid; place-items: center; align-content: center; min-height: 520px; padding: 50px; text-align: center; background: radial-gradient(circle at center,rgba(145,73,216,.16),transparent 43%),#0e0d10; }
 .stream-offline > .avatar { width: 96px; height: 96px; margin-bottom: 17px; }
 .stream-offline h1 { margin: 10px 0 5px; font-size: 36px; }.stream-offline p { color: #958e9b; }

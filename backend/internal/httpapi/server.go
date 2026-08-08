@@ -135,6 +135,9 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 	case "year":
 		value := now.AddDate(-1, 0, 0)
 		startedAt, endedAt = &value, &now
+	case "last_stream":
+		value := now.AddDate(0, -1, 0)
+		startedAt, endedAt = &value, &now
 	case "all":
 	case "custom":
 		from, fromErr := time.Parse("2006-01-02", r.URL.Query().Get("from"))
@@ -155,7 +158,32 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 		ttl = time.Hour
 	}
 	items := s.loadTwitchClips(r.Context(), cacheKey, logins, startedAt, endedAt, ttl)
+	if r.URL.Query().Get("period") == "last_stream" {
+		items = clipsFromLastCompletedStreams(items)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func clipsFromLastCompletedStreams(items []twitch.Clip) []twitch.Clip {
+	latestByChannel := make(map[string]twitch.Clip)
+	for _, clip := range items {
+		if strings.TrimSpace(clip.VideoID) == "" {
+			continue
+		}
+		channel := strings.ToLower(strings.TrimSpace(clip.BroadcasterName))
+		latest, exists := latestByChannel[channel]
+		if !exists || clip.CreatedAt.After(latest.CreatedAt) {
+			latestByChannel[channel] = clip
+		}
+	}
+	result := make([]twitch.Clip, 0, len(items))
+	for _, clip := range items {
+		channel := strings.ToLower(strings.TrimSpace(clip.BroadcasterName))
+		if latest, exists := latestByChannel[channel]; exists && clip.VideoID == latest.VideoID {
+			result = append(result, clip)
+		}
+	}
+	return result
 }
 
 func (s *Server) loadTwitchClips(ctx context.Context, cacheKey string, logins []string, startedAt, endedAt *time.Time, ttl time.Duration) []twitch.Clip {

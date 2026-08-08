@@ -14,6 +14,7 @@ import (
 	"github.com/ravshann/predlozhka/backend/internal/config"
 	"github.com/ravshann/predlozhka/backend/internal/domain"
 	"github.com/ravshann/predlozhka/backend/internal/store"
+	"github.com/ravshann/predlozhka/backend/internal/twitch"
 	"github.com/ravshann/predlozhka/backend/internal/youtube"
 )
 
@@ -231,5 +232,20 @@ func TestModeratorCanEditSubmissionContent(t *testing.T) {
 	}
 	if database.updatedInput == nil || database.updatedInput.Title != "Исправленное название" || database.updatedInput.Version != 2 {
 		t.Fatalf("unexpected input: %#v", database.updatedInput)
+	}
+}
+
+func TestClipsFromLastCompletedStreamsUsesLatestVODPerChannel(t *testing.T) {
+	t.Parallel()
+	clips := []twitch.Clip{
+		{ID: "ravshan-old", BroadcasterName: "RavshanN", VideoID: "vod-1", CreatedAt: time.Date(2026, 8, 7, 18, 0, 0, 0, time.UTC)},
+		{ID: "ravshan-last", BroadcasterName: "RavshanN", VideoID: "vod-2", CreatedAt: time.Date(2026, 8, 8, 18, 0, 0, 0, time.UTC)},
+		{ID: "ravshan-live", BroadcasterName: "RavshanN", VideoID: "", CreatedAt: time.Date(2026, 8, 9, 18, 0, 0, 0, time.UTC)},
+		{ID: "btw-a", BroadcasterName: "ravshanbtw", VideoID: "vod-btw", CreatedAt: time.Date(2026, 8, 8, 20, 0, 0, 0, time.UTC)},
+		{ID: "btw-b", BroadcasterName: "ravshanbtw", VideoID: "vod-btw", CreatedAt: time.Date(2026, 8, 8, 20, 5, 0, 0, time.UTC)},
+	}
+	result := clipsFromLastCompletedStreams(clips)
+	if len(result) != 3 || result[0].ID != "ravshan-last" || result[1].ID != "btw-a" || result[2].ID != "btw-b" {
+		t.Fatalf("unexpected clips: %#v", result)
 	}
 }

@@ -795,6 +795,7 @@ function StreamerHome({ streamer, navigate }) {
                 <span className="stream-state"><i /> В ЭФИРЕ</span>
                 <b>{Number(streamer.viewer_count || 0).toLocaleString('ru-RU')} онлайн</b>
                 <time>{formatStreamDuration(streamer.started_at, now)}</time>
+                <a className="stream-open-link" href={`https://www.twitch.tv/${encodeURIComponent(activeTwitchLogin)}`} target="_blank" rel="noreferrer">Открыть трансляцию <ExternalLink size={14} /></a>
               </div>
             </div>
           </div>
@@ -817,6 +818,7 @@ function StreamerHome({ streamer, navigate }) {
         <div className="stream-live-metrics">
           <span className="stream-state"><i /> {streamer.live ? 'В ЭФИРЕ' : 'ОФЛАЙН'}</span>
           {streamer.live && <><b>{Number(streamer.viewer_count || 0).toLocaleString('ru-RU')} онлайн</b><time>{formatStreamDuration(streamer.started_at, now)}</time></>}
+          <a className="stream-open-link" href={`https://www.twitch.tv/${encodeURIComponent(activeTwitchLogin)}`} target="_blank" rel="noreferrer">Перейти на Twitch <ExternalLink size={14} /></a>
         </div>
       </div>}
       </section>
@@ -1027,7 +1029,7 @@ function TwitchClipsView() {
           </div>
           <div className="clips-filter-group clips-periods">
             <span>Период</span>
-            {[['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время'], ['custom', 'Свой период']].map(([value, label]) => (
+            {[['today', 'Сегодня'], ['last_stream', 'Прошлый стрим'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время'], ['custom', 'Свой период']].map(([value, label]) => (
               <button key={value} className={filters.period === value ? 'selected' : ''} onClick={() => updateFilter('period', value)}>{label}</button>
             ))}
           </div>
