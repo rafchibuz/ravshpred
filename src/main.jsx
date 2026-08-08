@@ -41,6 +41,15 @@ import {
 } from './domain.js';
 import * as api from './api.js';
 import './styles.css';
+import twitchIcon from '../assets/social/twitch.png';
+import telegramIcon from '../assets/social/telegram.png';
+import instagramIcon from '../assets/social/instagram.png';
+import tiktokIcon from '../assets/social/tiktok.png';
+import youtubeIcon from '../assets/social/youtube.png';
+import discordIcon from '../assets/social/discord.png';
+import donationAlertsIcon from '../assets/social/donation-alerts.svg';
+import donatePayIcon from '../assets/social/donatepay.png';
+import memeAlertsIcon from '../assets/social/memealerts.png';
 
 const STORAGE_KEY = 'ravshann-predlozhka-local-v3';
 const MODERATION_POLL_INTERVAL = 15000;
@@ -637,19 +646,48 @@ function formatStreamDuration(startedAt, now) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
+function serviceIconFor(url) {
+  let host;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+
+  const services = [
+    { matches: ['twitch.tv'], icon: twitchIcon },
+    { matches: ['t.me', 'telegram.me', 'telegram.org'], icon: telegramIcon },
+    { matches: ['instagram.com'], icon: instagramIcon },
+    { matches: ['tiktok.com'], icon: tiktokIcon },
+    { matches: ['youtube.com', 'youtu.be'], icon: youtubeIcon },
+    { matches: ['discord.gg', 'discord.com'], icon: discordIcon },
+    { matches: ['donationalerts.com'], icon: donationAlertsIcon },
+    { matches: ['donatepay.ru'], icon: donatePayIcon },
+    { matches: ['memealerts.com'], icon: memeAlertsIcon },
+  ];
+  const service = services.find(({ matches }) => matches.some((domain) => host === domain || host.endsWith(`.${domain}`)));
+  return service?.icon || null;
+}
+
 function LinkDirectory({ title, links, compact = false }) {
   const items = links || [];
   return (
     <section className={`stream-socials social-directory-section ${compact ? 'is-compact' : ''}`}>
       <header><h2>{title}</h2><span>{String(items.length).padStart(2, '0')}</span></header>
       <div className="social-directory">
-        {items.map((item, index) => (
-          <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
-            <span>{String(index + 1).padStart(2, '0')}</span>
-            <div><strong>{item.name}</strong><small>{item.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</small></div>
-            <ArrowUpRight size={16} />
-          </a>
-        ))}
+        {items.map((item, index) => {
+          const serviceIcon = serviceIconFor(item.url);
+          return (
+            <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <span className="social-service-icon" aria-hidden="true">
+                {serviceIcon ? <img src={serviceIcon} alt="" /> : <Link2 size={18} />}
+              </span>
+              <div><strong>{item.name}</strong><small>{item.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</small></div>
+              <ArrowUpRight size={16} />
+            </a>
+          );
+        })}
         {!items.length && <div className="social-directory-empty">Ссылки появятся здесь после добавления в настройках</div>}
       </div>
     </section>
