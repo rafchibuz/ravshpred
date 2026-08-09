@@ -25,6 +25,7 @@ type stubStore struct {
 	sessionRole  domain.Role
 	createdInput *store.CreateSubmissionInput
 	updatedInput *store.UpdateSubmissionContentInput
+	unbanInput   *store.CreateUnbanAppealInput
 }
 
 func (s *stubStore) Ping(context.Context) error { return nil }
@@ -64,6 +65,10 @@ func (s *stubStore) CreateSubmission(_ context.Context, input store.CreateSubmis
 func (s *stubStore) UpdateSubmissionContent(_ context.Context, input store.UpdateSubmissionContentInput) (domain.Video, error) {
 	s.updatedInput = &input
 	return domain.Video{ID: input.SubmissionID, Title: input.Title, SourceURL: input.SourceURL, SubmitterComment: input.Comment, Version: input.Version + 1}, nil
+}
+func (s *stubStore) CreateUnbanAppeal(_ context.Context, input store.CreateUnbanAppealInput) (domain.UnbanAppeal, error) {
+	s.unbanInput = &input
+	return domain.UnbanAppeal{ID: "appeal-id", Platform: input.Platform, Community: input.Community, BannedUsername: input.BannedUsername, Status: domain.UnbanPending}, nil
 }
 
 type stubYouTube struct{}
@@ -182,6 +187,49 @@ func TestUserCanSubmitStreamIdeaWithoutVideoURL(t *testing.T) {
 	}
 	if database.createdInput == nil || database.createdInput.ContentKind != "stream_idea" || database.createdInput.SourceURL != "" {
 		t.Fatalf("unexpected input: %#v", database.createdInput)
+	}
+}
+
+func TestUserCanCreateManualUnbanAppeal(t *testing.T) {
+	t.Parallel()
+	database := &stubStore{sessionRole: domain.RoleUser}
+	handler := testServer(database)
+	request := httptest.NewRequest(http.MethodPost, "/api/unban-appeals", strings.NewReader(`{
+		"platform":"twitch","community":"ravshann","banned_username":"viewer_name",
+		"ban_reason":"Получил бан после конфликта в чате", "statement":"Признаю, что повёл себя неправильно, и впредь буду соблюдать правила.",
+		"position":"admit","rules_accepted":true
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+	request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("got %d, want 201: %s", response.Code, response.Body.String())
+	}
+	if database.unbanInput == nil || database.unbanInput.Community != "ravshann" || database.unbanInput.BannedUsername != "viewer_name" {
+		t.Fatalf("unexpected input: %#v", database.unbanInput)
+	}
+}
+
+func TestUnbanAppealRequiresRulesAcceptance(t *testing.T) {
+	t.Parallel()
+	database := &stubStore{sessionRole: domain.RoleUser}
+	handler := testServer(database)
+	request := httptest.NewRequest(http.MethodPost, "/api/unban-appeals", strings.NewReader(`{
+		"platform":"telegram","community":"ravshann_telegram","banned_username":"viewer_name",
+		"ban_reason":"Получил бан после конфликта в чате", "statement":"Считаю, что решение можно пересмотреть после моего объяснения.",
+		"position":"unsure","rules_accepted":false
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+	request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400: %s", response.Code, response.Body.String())
 	}
 }
 

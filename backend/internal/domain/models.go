@@ -82,6 +82,36 @@ type Notification struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type UnbanAppealStatus string
+
+const (
+	UnbanPending   UnbanAppealStatus = "pending"
+	UnbanInReview  UnbanAppealStatus = "in_review"
+	UnbanNeedsInfo UnbanAppealStatus = "needs_info"
+	UnbanApproved  UnbanAppealStatus = "approved"
+	UnbanRejected  UnbanAppealStatus = "rejected"
+	UnbanWithdrawn UnbanAppealStatus = "withdrawn"
+	UnbanDuplicate UnbanAppealStatus = "duplicate"
+)
+
+type UnbanAppeal struct {
+	ID               string            `json:"id"`
+	Author           User              `json:"author"`
+	Platform         string            `json:"platform"`
+	Community        string            `json:"community"`
+	BannedUsername   string            `json:"banned_username"`
+	BanReason        string            `json:"ban_reason"`
+	Statement        string            `json:"statement"`
+	Position         string            `json:"position"`
+	Status           UnbanAppealStatus `json:"status"`
+	ModeratorComment string            `json:"moderator_comment,omitempty"`
+	InternalNote     string            `json:"internal_note,omitempty"`
+	Moderator        *User             `json:"moderator,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+	ResolvedAt       *time.Time        `json:"resolved_at,omitempty"`
+}
+
 type NewsComment struct {
 	ID        string    `json:"id"`
 	PostID    string    `json:"post_id"`
@@ -187,7 +217,7 @@ func Can(role Role, action string) bool {
 	switch action {
 	case "view_feed", "open_video":
 		return true
-	case "submit", "vote", "view_profile", "comment_news":
+	case "submit", "vote", "view_profile", "comment_news", "submit_unban_appeal":
 		return role == RoleUser || role == RoleModerator || role == RoleOwner
 	case "moderate", "mark_watched":
 		return role == RoleModerator || role == RoleOwner

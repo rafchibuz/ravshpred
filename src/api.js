@@ -164,7 +164,7 @@ export async function loadWorkspace(role) {
       body: notice.body,
       createdAt: notice.created_at,
       read: Boolean(notice.read_at),
-      tone: notice.type === 'moderation' && /отклон|исправ/i.test(notice.title) ? 'red' : 'green',
+      tone: /отклон|исправ|дубликат/i.test(notice.title) ? 'red' : 'green',
     }));
   }
   if (role === 'owner') {
@@ -199,6 +199,28 @@ export async function loadWorkspace(role) {
 export function createSubmission(input) {
   return request('/submissions', { method: 'POST', body: input })
     .then((payload) => normalizeVideo(payload.data));
+}
+
+export function loadMyUnbanAppeals() {
+  return request('/unban-appeals/mine?limit=100').then((payload) => payload.data || []);
+}
+
+export function createUnbanAppeal(input) {
+  return request('/unban-appeals', { method: 'POST', body: input }).then((payload) => payload.data);
+}
+
+export function withdrawUnbanAppeal(appealId) {
+  return request(`/unban-appeals/${encodeURIComponent(appealId)}/withdraw`, { method: 'POST' }).then((payload) => payload.data);
+}
+
+export function loadUnbanAppeals(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value != null) params.set(key, value); });
+  return request(`/moderation/unban-appeals?${params}`).then((payload) => ({ items: payload.data || [], total: Number(payload.meta?.total || 0) }));
+}
+
+export function reviewUnbanAppeal(appealId, input) {
+  return request(`/moderation/unban-appeals/${encodeURIComponent(appealId)}`, { method: 'PATCH', body: input }).then((payload) => payload.data);
 }
 
 export async function loadPendingSubmissions() {

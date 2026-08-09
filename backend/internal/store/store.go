@@ -17,6 +17,7 @@ var (
 	ErrCategoryInUse   = errors.New("category in use")
 	ErrVersionConflict = errors.New("submission version conflict")
 	ErrSelfVote        = errors.New("cannot vote for own submission")
+	ErrOpenAppeal      = errors.New("open unban appeal already exists")
 )
 
 type FeedParams struct {
@@ -100,6 +101,32 @@ type DecideInput struct {
 	Version      int
 }
 
+type CreateUnbanAppealInput struct {
+	AuthorID       string
+	Platform       string
+	Community      string
+	BannedUsername string
+	BanReason      string
+	Statement      string
+	Position       string
+}
+
+type UnbanAppealParams struct {
+	Status   string
+	Platform string
+	Query    string
+	Limit    int
+	Offset   int
+}
+
+type ReviewUnbanAppealInput struct {
+	AppealID         string
+	ModeratorID      string
+	Status           domain.UnbanAppealStatus
+	ModeratorComment string
+	InternalNote     string
+}
+
 type Session struct {
 	User      domain.User
 	CSRFHash  []byte
@@ -128,6 +155,11 @@ type Store interface {
 	UpdateSubmissionContent(context.Context, UpdateSubmissionContentInput) (domain.Video, error)
 	UpdateMovieMetadata(context.Context, UpdateMovieInput) (domain.Video, error)
 	DeleteVideo(context.Context, string, string) error
+	CreateUnbanAppeal(context.Context, CreateUnbanAppealInput) (domain.UnbanAppeal, error)
+	ListMyUnbanAppeals(context.Context, string, int) ([]domain.UnbanAppeal, error)
+	ListUnbanAppeals(context.Context, UnbanAppealParams) ([]domain.UnbanAppeal, int, error)
+	ReviewUnbanAppeal(context.Context, ReviewUnbanAppealInput) (domain.UnbanAppeal, error)
+	WithdrawUnbanAppeal(context.Context, string, string) (domain.UnbanAppeal, error)
 
 	CreateCategory(context.Context, string, string, string) (domain.Category, error)
 	DeleteCategory(context.Context, string, string) error

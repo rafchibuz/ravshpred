@@ -682,11 +682,54 @@ body.modal-open { overflow: hidden; }
 .twitch-cache-settings p { margin: 0; color: #827b88; font-size: 9px; }
 .twitch-cache-settings .outline-btn { flex: 0 0 auto; }
 
+.unban-heading .eyebrow, .unban-moderation-page .eyebrow { display: flex; align-items: center; gap: 6px; }
+.unban-user-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(360px, .95fr); gap: 16px; align-items: start; }
+.unban-form, .unban-history, .unban-review-card { padding: 22px; }
+.unban-form { display: grid; gap: 15px; }
+.unban-form label, .unban-review-fields label { position: relative; display: grid; gap: 7px; color: #a9a2b0; font-size: 10px; }
+.unban-form input, .unban-form select, .unban-form textarea, .unban-review-fields select, .unban-review-fields textarea { width: 100%; border: 1px solid #38313f; border-radius: 8px; padding: 12px 13px; color: #f7f3fa; background: #121016; outline: none; }
+.unban-form textarea, .unban-review-fields textarea { min-height: 112px; resize: vertical; line-height: 1.55; }
+.unban-form input:focus, .unban-form select:focus, .unban-form textarea:focus, .unban-review-fields select:focus, .unban-review-fields textarea:focus { border-color: #9a43ef; box-shadow: 0 0 0 2px rgba(154,67,239,.12); }
+.unban-form label > small { position: absolute; right: 8px; bottom: 7px; color: #665f6c; font-size: 8px; }
+.unban-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.unban-platform-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 5px; border: 1px solid #332c38; border-radius: 10px; background: #121015; }
+.unban-platform-switch button { min-height: 38px; border: 0; border-radius: 7px; color: #817989; background: transparent; font-weight: 800; }
+.unban-platform-switch button.selected { color: white; background: linear-gradient(135deg,#67209f,#9a38e8); }
+.unban-accept { grid-template-columns: 18px 1fr !important; align-items: start; gap: 9px !important; padding: 12px; border: 1px solid #332c38; border-radius: 9px; background: #151218; line-height: 1.5; cursor: pointer; }
+.unban-accept input { width: 16px; height: 16px; margin: 1px 0 0; accent-color: #a342f1; }
+.unban-history { display: grid; gap: 11px; }
+.unban-history-card { display: grid; gap: 10px; padding: 15px; border: 1px solid #332d38; border-radius: 10px; background: #151218; }
+.unban-history-card header, .unban-review-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.unban-history-card header div { display: grid; gap: 4px; }
+.unban-history-card header b { font-size: 12px; }
+.unban-history-card header span, .unban-review-card header p { margin: 0; color: #77707e; font-size: 9px; }
+.unban-history-card > p { margin: 0; color: #b9b2bf; font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
+.unban-history-position { width: max-content; padding: 5px 8px; border-radius: 5px; color: #c7a7e7; background: #261833; font-size: 8px; font-weight: 800; }
+.unban-status { flex: 0 0 auto; padding: 6px 9px; border-radius: 999px; color: #d5b9ef; background: #31203e; font-size: 7px; font-style: normal; font-weight: 900; text-transform: uppercase; white-space: nowrap; }
+.unban-status.approved { color: #60e5a1; background: #123528; }.unban-status.rejected,.unban-status.duplicate { color: #ff728c; background: #421a25; }.unban-status.pending { color: #f6c85e; background: #3a2e11; }.unban-status.withdrawn { color: #918a97; background: #29252c; }
+.unban-public-reply { padding: 11px; border-left: 2px solid #9a40ea; border-radius: 0 6px 6px 0; background: #201627; }
+.unban-public-reply span { color: #b86cf5; font-size: 8px; font-weight: 900; text-transform: uppercase; }.unban-public-reply p { margin: 5px 0 0; color: #d1cad6; font-size: 10px; line-height: 1.5; white-space: pre-wrap; }.unban-public-reply.muted { border-color: #4b4550; color: #79727f; font-size: 9px; }
+.unban-history-card .outline-btn { width: max-content; min-height: 31px; }
+.unban-moderation-filters { display: grid; grid-template-columns: minmax(240px,1fr) 190px 210px; gap: 9px; margin-bottom: 13px; padding: 12px; }
+.unban-moderation-filters label { display: flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid #37303d; border-radius: 7px; background: #121016; }
+.unban-moderation-filters input, .unban-moderation-filters select { min-height: 38px; border: 1px solid #37303d; border-radius: 7px; padding: 0 11px; color: #eee9f1; background: #121016; outline: none; }
+.unban-moderation-filters label input { width: 100%; border: 0; padding: 0; }
+.unban-review-layout { display: grid; grid-template-columns: minmax(300px, .36fr) minmax(0, 1fr); gap: 13px; align-items: start; }
+.unban-queue { max-height: 720px; overflow-y: auto; padding: 9px; }
+.unban-queue > button { width: 100%; display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 11px; border: 1px solid transparent; border-radius: 8px; color: #eee9f1; background: transparent; text-align: left; }
+.unban-queue > button:hover { background: #19151d; }.unban-queue > button.selected { border-color: #8d38d1; background: #25162f; }
+.unban-queue button > span { min-width: 0; display: grid; gap: 4px; }.unban-queue button b, .unban-queue button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.unban-queue button b { font-size: 10px; }.unban-queue button small { color: #77707e; font-size: 8px; }
+.unban-review-card { display: grid; gap: 18px; }.unban-review-card h2 { margin: 5px 0; font-size: 23px; }.unban-review-copy { display: grid; grid-template-columns: 1fr 230px; gap: 10px; }.unban-review-copy section { padding: 14px; border: 1px solid #342e39; border-radius: 9px; background: #141217; }.unban-review-copy section:first-child,.unban-review-copy section:last-child { grid-column: 1 / -1; }.unban-review-copy span { color: #918898; font-size: 8px; font-weight: 900; text-transform: uppercase; }.unban-review-copy p { margin: 8px 0 0; color: #d3ccd7; font-size: 11px; line-height: 1.65; white-space: pre-wrap; }.unban-review-copy b { display: block; margin-top: 8px; color: #c582f4; font-size: 11px; }
+.unban-review-fields { display: grid; grid-template-columns: 220px 1fr 1fr auto; align-items: end; gap: 10px; padding-top: 16px; border-top: 1px solid #302a35; }.unban-review-fields textarea { min-height: 90px; }.unban-review-fields .primary-btn { min-height: 42px; white-space: nowrap; }
+
 @media (max-width: 900px) {
   .owner-data-filters, .audit-filters { grid-template-columns: 1fr 1fr; }
   .owner-data-filters > label:first-child { grid-column: 1 / -1; }
   .owner-user-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .owner-detail-columns { grid-template-columns: 1fr; }
+  .unban-user-layout, .unban-review-layout { grid-template-columns: 1fr; }
+  .unban-review-fields { grid-template-columns: 1fr 1fr; }
+  .unban-moderation-filters { grid-template-columns: 1fr 1fr; }.unban-moderation-filters label { grid-column: 1 / -1; }
 }
 
 @media (max-width: 640px) {
@@ -706,6 +749,10 @@ body.modal-open { overflow: hidden; }
   .comment-form > .avatar { display: none; }
   .comment-form .primary-btn { width: 44px; min-height: 44px; }
   .legal-hero { padding: 20px 16px; }
+  .unban-form, .unban-history, .unban-review-card { padding: 15px 12px; }
+  .unban-form-grid, .unban-review-fields, .unban-moderation-filters, .unban-review-copy { grid-template-columns: 1fr; }
+  .unban-moderation-filters label, .unban-review-copy section:first-child, .unban-review-copy section:last-child { grid-column: auto; }
+  .unban-queue { max-height: 430px; }
   .stream-home { padding: 12px 8px 20px; }
   .twitch-live-shell { grid-template-columns: 1fr; height: auto; min-height: 0; }
   .twitch-player-column { grid-row: 1; }

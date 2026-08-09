@@ -76,11 +76,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("POST /api/submissions", s.createSubmission)
 	mux.HandleFunc("GET /api/submissions/mine", s.mine)
+	mux.HandleFunc("POST /api/unban-appeals", s.createUnbanAppeal)
+	mux.HandleFunc("GET /api/unban-appeals/mine", s.myUnbanAppeals)
+	mux.HandleFunc("POST /api/unban-appeals/{id}/withdraw", s.withdrawUnbanAppeal)
 	mux.HandleFunc("GET /api/notifications", s.notifications)
 	mux.HandleFunc("POST /api/notifications/read-all", s.readAllNotifications)
 	mux.HandleFunc("POST /api/notifications/{id}/read", s.readNotification)
 	mux.HandleFunc("PUT /api/videos/{id}/vote", s.vote)
 	mux.HandleFunc("GET /api/moderation/submissions", s.moderationList)
+	mux.HandleFunc("GET /api/moderation/unban-appeals", s.unbanAppeals)
+	mux.HandleFunc("PATCH /api/moderation/unban-appeals/{id}", s.reviewUnbanAppeal)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}", s.moderate)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/watched", s.watched)
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/category", s.videoCategory)
@@ -819,6 +824,135 @@ func (s *Server) mine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": items})
 }
 
+func (s *Server) createUnbanAppeal(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "submit_unban_appeal")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Platform       string `json:"platform"`
+		Community      string `json:"community"`
+		BannedUsername string `json:"banned_username"`
+		BanReason      string `json:"ban_reason"`
+		Statement      string `json:"statement"`
+		Position       string `json:"position"`
+		RulesAccepted  bool   `json:"rules_accepted"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Platform = strings.ToLower(strings.TrimSpace(input.Platform))
+	input.Community = strings.ToLower(strings.TrimSpace(input.Community))
+	input.BannedUsername = strings.TrimPrefix(strings.TrimSpace(input.BannedUsername), "@")
+	input.BanReason, input.Statement = strings.TrimSpace(input.BanReason), strings.TrimSpace(input.Statement)
+	validCommunity := (input.Platform == "twitch" && (input.Community == "ravshann" || input.Community == "ravshanbtw")) ||
+		(input.Platform == "telegram" && input.Community == "ravshann_telegram")
+	validPosition := input.Position == "admit" || input.Position == "mistake" || input.Position == "unsure"
+	if !validCommunity || !validPosition || !input.RulesAccepted || len([]rune(input.BannedUsername)) < 2 || len([]rune(input.BannedUsername)) > 64 ||
+		len([]rune(input.BanReason)) < 10 || len([]rune(input.BanReason)) > 1000 || len([]rune(input.Statement)) < 20 || len([]rune(input.Statement)) > 2000 {
+		writeError(w, http.StatusBadRequest, "invalid_unban_appeal", "Проверьте площадку, ник и заполните объяснение")
+		return
+	}
+	item, err := s.store.CreateUnbanAppeal(r.Context(), store.CreateUnbanAppealInput{
+		AuthorID: actor.User.ID, Platform: input.Platform, Community: input.Community,
+		BannedUsername: input.BannedUsername, BanReason: input.BanReason, Statement: input.Statement, Position: input.Position,
+	})
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": item})
+}
+
+func (s *Server) myUnbanAppeals(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "view_profile")
+	if actor == nil {
+		return
+	}
+	items, err := s.store.ListMyUnbanAppeals(r.Context(), actor.User.ID, intQuery(r, "limit", 50))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) withdrawUnbanAppeal(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "submit_unban_appeal")
+	if actor == nil {
+		return
+	}
+	item, err := s.store.WithdrawUnbanAppeal(r.Context(), r.PathValue("id"), actor.User.ID)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": item})
+}
+
+func (s *Server) unbanAppeals(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "moderate") == nil {
+		return
+	}
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	platform := strings.TrimSpace(r.URL.Query().Get("platform"))
+	if status != "" && !validUnbanStatus(domain.UnbanAppealStatus(status)) {
+		writeError(w, http.StatusBadRequest, "invalid_status", "Неизвестный статус заявки")
+		return
+	}
+	if platform != "" && platform != "twitch" && platform != "telegram" {
+		writeError(w, http.StatusBadRequest, "invalid_platform", "Неизвестная площадка")
+		return
+	}
+	items, total, err := s.store.ListUnbanAppeals(r.Context(), store.UnbanAppealParams{
+		Status: status, Platform: platform, Query: r.URL.Query().Get("q"), Limit: intQuery(r, "limit", 50), Offset: nonnegativeQuery(r, "offset"),
+	})
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "meta": map[string]int{"total": total}})
+}
+
+func validUnbanStatus(status domain.UnbanAppealStatus) bool {
+	switch status {
+	case domain.UnbanPending, domain.UnbanInReview, domain.UnbanNeedsInfo, domain.UnbanApproved, domain.UnbanRejected, domain.UnbanWithdrawn, domain.UnbanDuplicate:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) reviewUnbanAppeal(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "moderate")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Status           domain.UnbanAppealStatus `json:"status"`
+		ModeratorComment string                   `json:"moderator_comment"`
+		InternalNote     string                   `json:"internal_note"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.ModeratorComment, input.InternalNote = strings.TrimSpace(input.ModeratorComment), strings.TrimSpace(input.InternalNote)
+	if !validUnbanStatus(input.Status) || input.Status == domain.UnbanPending || input.Status == domain.UnbanWithdrawn ||
+		len([]rune(input.ModeratorComment)) > 2000 || len([]rune(input.InternalNote)) > 2000 {
+		writeError(w, http.StatusBadRequest, "invalid_unban_review", "Проверьте решение и комментарии")
+		return
+	}
+	item, err := s.store.ReviewUnbanAppeal(r.Context(), store.ReviewUnbanAppealInput{
+		AppealID: r.PathValue("id"), ModeratorID: actor.User.ID, Status: input.Status,
+		ModeratorComment: input.ModeratorComment, InternalNote: input.InternalNote,
+	})
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": item})
+}
+
 func (s *Server) notifications(w http.ResponseWriter, r *http.Request) {
 	actor := s.require(w, r, "view_profile")
 	if actor == nil {
@@ -1325,6 +1459,8 @@ func (s *Server) storeError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "self_vote_forbidden", "Нельзя голосовать за собственное видео")
 	case errors.Is(err, store.ErrDailyLimit):
 		writeError(w, http.StatusTooManyRequests, "daily_limit", "Достигнут лимит отправок за 24 часа")
+	case errors.Is(err, store.ErrOpenAppeal):
+		writeError(w, http.StatusConflict, "open_unban_appeal", "У вас уже есть открытая заявка для этой площадки")
 	default:
 		s.internalError(w, err)
 	}

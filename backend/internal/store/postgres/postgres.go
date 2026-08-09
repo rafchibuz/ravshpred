@@ -36,6 +36,9 @@ var submissionKindsSchema string
 //go:embed migrations/000006_twitch_cache.sql
 var twitchCacheSchema string
 
+//go:embed migrations/000007_unban_appeals.sql
+var unbanAppealsSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -74,6 +77,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, twitchCacheSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply twitch cache schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, unbanAppealsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply unban appeals schema: %w", err)
 	}
 	return result, nil
 }
@@ -714,6 +721,180 @@ func (s *Store) DeleteVideo(ctx context.Context, submissionID, actorID string) e
 	}
 	_, err = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'delete','submission',$2)`, actorID, submissionID)
 	return err
+}
+
+const unbanAppealSelect = `
+	SELECT a.id::text,a.platform,a.community,a.banned_username,a.ban_reason,a.statement,a.position,a.status,
+		a.moderator_comment,a.internal_note,a.created_at,a.updated_at,a.resolved_at,
+		u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),u.display_name,COALESCE(u.avatar_url,''),u.role,u.created_at,
+		COALESCE(m.id::text,''),COALESCE(m.twitch_id,''),COALESCE(m.twitch_login,''),COALESCE(m.display_name,''),COALESCE(m.avatar_url,''),COALESCE(m.role,'user'),COALESCE(m.created_at,a.created_at)
+	FROM unban_appeals a
+	JOIN users u ON u.id=a.author_id
+	LEFT JOIN users m ON m.id=a.moderator_id`
+
+type rowScanner interface{ Scan(...any) error }
+
+func scanUnbanAppeal(row rowScanner) (domain.UnbanAppeal, error) {
+	var item domain.UnbanAppeal
+	var moderator domain.User
+	var moderatorID string
+	err := row.Scan(
+		&item.ID, &item.Platform, &item.Community, &item.BannedUsername, &item.BanReason, &item.Statement, &item.Position, &item.Status,
+		&item.ModeratorComment, &item.InternalNote, &item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt,
+		&item.Author.ID, &item.Author.TwitchID, &item.Author.Login, &item.Author.Display, &item.Author.AvatarURL, &item.Author.Role, &item.Author.CreatedAt,
+		&moderatorID, &moderator.TwitchID, &moderator.Login, &moderator.Display, &moderator.AvatarURL, &moderator.Role, &moderator.CreatedAt,
+	)
+	if err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	if moderatorID != "" {
+		moderator.ID = moderatorID
+		item.Moderator = &moderator
+	}
+	return item, nil
+}
+
+func (s *Store) unbanAppealByID(ctx context.Context, appealID string) (domain.UnbanAppeal, error) {
+	item, err := scanUnbanAppeal(s.pool.QueryRow(ctx, unbanAppealSelect+` WHERE a.id::text=$1`, appealID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.UnbanAppeal{}, store.ErrNotFound
+	}
+	return item, err
+}
+
+func (s *Store) CreateUnbanAppeal(ctx context.Context, input store.CreateUnbanAppealInput) (domain.UnbanAppeal, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO unban_appeals(author_id,platform,community,banned_username,ban_reason,statement,position)
+		VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id::text`,
+		input.AuthorID, input.Platform, input.Community, input.BannedUsername, input.BanReason, input.Statement, input.Position,
+	).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.UnbanAppeal{}, store.ErrOpenAppeal
+		}
+		return domain.UnbanAppeal{}, err
+	}
+	_ = s.WriteAudit(ctx, input.AuthorID, "unban_appeal_create", "unban_appeal", id, map[string]any{"platform": input.Platform, "community": input.Community})
+	return s.unbanAppealByID(ctx, id)
+}
+
+func (s *Store) ListMyUnbanAppeals(ctx context.Context, authorID string, limit int) ([]domain.UnbanAppeal, error) {
+	limit = clampLimit(limit)
+	rows, err := s.pool.Query(ctx, unbanAppealSelect+` WHERE a.author_id::text=$1 ORDER BY a.created_at DESC LIMIT $2`, authorID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.UnbanAppeal, 0)
+	for rows.Next() {
+		item, scanErr := scanUnbanAppeal(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		item.InternalNote = ""
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) ListUnbanAppeals(ctx context.Context, params store.UnbanAppealParams) ([]domain.UnbanAppeal, int, error) {
+	params.Limit = clampLimit(params.Limit)
+	if params.Offset < 0 {
+		params.Offset = 0
+	}
+	conditions := []string{"1=1"}
+	args := []any{}
+	add := func(value any, condition string) {
+		args = append(args, value)
+		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
+	}
+	if params.Status != "" {
+		add(params.Status, "a.status=$%d")
+	}
+	if params.Platform != "" {
+		add(params.Platform, "a.platform=$%d")
+	}
+	if q := strings.TrimSpace(params.Query); q != "" {
+		add("%"+q+"%", "(a.banned_username ILIKE $%[1]d OR u.twitch_login ILIKE $%[1]d OR u.display_name ILIKE $%[1]d)")
+	}
+	where := " WHERE " + strings.Join(conditions, " AND ")
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM unban_appeals a JOIN users u ON u.id=a.author_id`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, params.Limit, params.Offset)
+	rows, err := s.pool.Query(ctx, unbanAppealSelect+where+fmt.Sprintf(` ORDER BY CASE a.status WHEN 'pending' THEN 0 WHEN 'in_review' THEN 1 WHEN 'needs_info' THEN 2 ELSE 3 END,a.created_at ASC LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]domain.UnbanAppeal, 0)
+	for rows.Next() {
+		item, scanErr := scanUnbanAppeal(rows)
+		if scanErr != nil {
+			return nil, 0, scanErr
+		}
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+func (s *Store) ReviewUnbanAppeal(ctx context.Context, input store.ReviewUnbanAppealInput) (domain.UnbanAppeal, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	defer tx.Rollback(ctx)
+	var authorID string
+	command, err := tx.Exec(ctx, `
+		UPDATE unban_appeals SET status=$2,moderator_comment=$3,internal_note=$4,moderator_id=$5,updated_at=now(),
+			resolved_at=CASE WHEN $2 IN ('approved','rejected','duplicate') THEN now() ELSE NULL END
+		WHERE id::text=$1 AND status <> 'withdrawn'`, input.AppealID, input.Status, input.ModeratorComment, input.InternalNote, input.ModeratorID)
+	if err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	if command.RowsAffected() == 0 {
+		return domain.UnbanAppeal{}, store.ErrNotFound
+	}
+	if err := tx.QueryRow(ctx, `SELECT author_id::text FROM unban_appeals WHERE id::text=$1`, input.AppealID).Scan(&authorID); err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	titles := map[domain.UnbanAppealStatus]string{
+		domain.UnbanInReview: "Заявка на разбан рассматривается", domain.UnbanNeedsInfo: "По заявке на разбан нужно уточнение",
+		domain.UnbanApproved: "Заявка на разбан одобрена", domain.UnbanRejected: "Заявка на разбан отклонена", domain.UnbanDuplicate: "Заявка на разбан отмечена как дубликат",
+	}
+	title := titles[input.Status]
+	if title == "" {
+		title = "Статус заявки на разбан обновлён"
+	}
+	body := input.ModeratorComment
+	if body == "" {
+		body = "Модератор изменил статус вашей заявки."
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO notifications(user_id,type,title,body) VALUES($1,'unban_appeal',$2,$3)`, authorID, title, body); err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'unban_appeal_review','unban_appeal',$2,jsonb_build_object('status',$3))`, input.ModeratorID, input.AppealID, input.Status); err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	return s.unbanAppealByID(ctx, input.AppealID)
+}
+
+func (s *Store) WithdrawUnbanAppeal(ctx context.Context, appealID, authorID string) (domain.UnbanAppeal, error) {
+	command, err := s.pool.Exec(ctx, `UPDATE unban_appeals SET status='withdrawn',updated_at=now(),resolved_at=now() WHERE id::text=$1 AND author_id::text=$2 AND status IN ('pending','needs_info')`, appealID, authorID)
+	if err != nil {
+		return domain.UnbanAppeal{}, err
+	}
+	if command.RowsAffected() == 0 {
+		return domain.UnbanAppeal{}, store.ErrNotFound
+	}
+	_ = s.WriteAudit(ctx, authorID, "unban_appeal_withdraw", "unban_appeal", appealID, nil)
+	return s.unbanAppealByID(ctx, appealID)
 }
 
 func (s *Store) CreateCategory(ctx context.Context, slug, name, actorID string) (domain.Category, error) {

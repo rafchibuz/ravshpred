@@ -27,6 +27,7 @@ import {
   Search,
   Send,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   ThumbsDown,
@@ -79,10 +80,12 @@ const AUDIT_LABELS = {
   assign_moderator: 'Назначение модератора', remove_moderator: 'Удаление модератора',
   settings_update: 'Изменение настроек', notification_read: 'Прочитано уведомление',
   notifications_read_all: 'Прочитаны уведомления',
+  unban_appeal_create: 'Заявка на разбан', unban_appeal_review: 'Решение по разбану', unban_appeal_withdraw: 'Отзыв заявки',
 };
 const AUDIT_TARGET_LABELS = {
   submission: 'предложение', user: 'пользователя', category: 'категорию', news_post: 'новость',
   news_comment: 'комментарий', notification: 'уведомление', system: 'систему',
+  unban_appeal: 'заявку на разбан',
 };
 
 function profileDecisionText(video) {
@@ -131,6 +134,17 @@ const STATUS_LABELS = {
   rejected: 'Отклонено',
   changes_requested: 'Нужно исправить',
   hidden: 'Скрыто',
+};
+
+const UNBAN_STATUS_LABELS = {
+  pending: 'Новая', in_review: 'На рассмотрении', needs_info: 'Нужно уточнение', approved: 'Одобрена',
+  rejected: 'Отклонена', withdrawn: 'Отозвана', duplicate: 'Дубликат',
+};
+const UNBAN_POSITION_LABELS = {
+  admit: 'Признаю нарушение', mistake: 'Считаю блокировку ошибочной', unsure: 'Не уверен в причине',
+};
+const UNBAN_COMMUNITY_LABELS = {
+  ravshann: 'Twitch · RavshanN', ravshanbtw: 'Twitch · ravshanbtw', ravshann_telegram: 'Telegram-сообщество Равшана',
 };
 const tones = {
   pink: 'linear-gradient(135deg,#743584 0%,#d64e7f 100%)',
@@ -461,6 +475,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
     { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
     { key: 'vods', label: 'Записи стримов', icon: VideoIcon },
     { key: 'news', label: 'Новости', icon: Newspaper },
+    { key: 'unban', label: 'Разбан', icon: ShieldAlert },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
     ...(can(role, 'view_profile')
       ? [
@@ -468,7 +483,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
           { key: 'profile', label: 'Профиль', icon: UserRound },
         ]
       : []),
-    ...(can(role, 'moderate') ? [{ key: 'moderation', label: 'Модерация', icon: ShieldCheck }] : []),
+    ...(can(role, 'moderate') ? [{ key: 'moderation', label: 'Модерация', icon: ShieldCheck }, { key: 'unban-moderation', label: 'Заявки на разбан', icon: ShieldAlert }] : []),
     ...(can(role, 'manage') ? [{ key: 'owner', label: 'Управление', icon: Settings }] : []),
   ];
 
@@ -1650,6 +1665,7 @@ const LEGAL_PAGES = {
       ['Что можно отправлять', ['Публичные YouTube-видео, доступные по обычной ссылке.', 'Материалы, которые подходят для совместного просмотра и обсуждения на стриме.', 'Один ролик отправляется один раз и размещается в подходящей категории.']],
       ['Что запрещено', ['Незаконный контент, угрозы, травля, шокирующие материалы и разглашение личных данных.', 'Реклама, скам, вредоносные ссылки, накрутка голосов и обход ограничений сайта.', 'Материалы, нарушающие права третьих лиц или правила YouTube.']],
       ['Модерация', ['Модератор может одобрить, отклонить, скрыть или удалить предложение.', 'Комментарий при отказе может отсутствовать; решение отображается в профиле автора.', 'Повторные нарушения могут привести к ограничению доступа к функциям проекта.']],
+      ['Заявки на разбан', ['Описывайте обстоятельства блокировки честно и без оскорблений.', 'Отправка заявки не гарантирует разбан; окончательное решение принимается вручную.', 'Повторные и заведомо ложные обращения могут быть отклонены как дубликаты.']],
       ['Комментарии', ['Обсуждайте тему новости без оскорблений, спама и рекламы.', 'Автор может удалить свой комментарий, а основатель — любой комментарий или новость.']],
     ],
   },
@@ -1658,8 +1674,8 @@ const LEGAL_PAGES = {
     title: 'Политика конфиденциальности',
     intro: 'Мы собираем только данные, необходимые для авторизации и работы предложки.',
     sections: [
-      ['Какие данные хранятся', ['Twitch User ID, логин, отображаемый ник и публичный аватар.', 'Отправленные ссылки, голоса, комментарии, уведомления и действия модерации.', 'Серверные сессии в защищённых cookie и технические журналы без паролей Twitch.']],
-      ['Для чего используются данные', ['Для входа, назначения ролей, отображения профиля и защиты от злоупотреблений.', 'Для работы предложений, голосования, комментариев, уведомлений и аудита решений.', 'Данные не продаются и не используются для рекламного профилирования.']],
+      ['Какие данные хранятся', ['Twitch User ID, логин, отображаемый ник и публичный аватар.', 'Отправленные ссылки, голоса, комментарии, заявки на разбан, уведомления и действия модерации.', 'Серверные сессии в защищённых cookie и технические журналы без паролей Twitch.']],
+      ['Для чего используются данные', ['Для входа, назначения ролей, отображения профиля и защиты от злоупотреблений.', 'Для работы предложений, голосования, комментариев, обращений, уведомлений и аудита решений.', 'Данные не продаются и не используются для рекламного профилирования.']],
       ['Хранение и защита', ['Пароль Twitch и пользовательский OAuth-токен не сохраняются.', 'Доступ к административным данным ограничен ролями; изменяющие запросы защищены CSRF-проверкой.', 'Резервные копии базы создаются автоматически и хранятся с ограниченной ротацией.']],
       ['Ваши возможности', ['Можно выйти из аккаунта и прекратить использование сайта в любой момент.', 'Запрос на удаление профиля и связанных персональных данных направляется администрации проекта.', 'Часть записей аудита может сохраняться в обезличенном виде для безопасности проекта.']],
     ],
@@ -1962,6 +1978,92 @@ function ProfileView({ videos, actor, navigate }) {
       </section>
     </main>
   );
+}
+
+function UnbanAppealsView({ actor, notify }) {
+  const emptyForm = { platform: 'twitch', community: 'ravshann', banned_username: actor.name || '', ban_reason: '', statement: '', position: 'admit', rules_accepted: false };
+  const [form, setForm] = useState(emptyForm);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const load = useCallback(() => api.loadMyUnbanAppeals().then(setItems).finally(() => setLoading(false)), []);
+  useEffect(() => { load().catch((error) => notify(error.message)); }, [load, notify]);
+  const patch = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async (event) => {
+    event.preventDefault();
+    setSubmitting(true);
+    try {
+      const created = await api.createUnbanAppeal(form);
+      setItems((current) => [created, ...current]);
+      setForm({ ...emptyForm, platform: form.platform, community: form.community, banned_username: form.banned_username });
+      notify('Заявка отправлена модераторам');
+    } catch (error) { notify(error.message); }
+    finally { setSubmitting(false); }
+  };
+  const setPlatform = (platform) => setForm((current) => ({ ...current, platform, community: platform === 'twitch' ? 'ravshann' : 'ravshann_telegram' }));
+  return <main className="main-content unban-page">
+    <section className="page-heading unban-heading"><div><div className="eyebrow"><ShieldAlert size={13} /> ОБРАЩЕНИЕ К МОДЕРАЦИИ</div><h1>Заявка на разбан</h1><p>Спокойно опишите ситуацию — каждое обращение рассматривается вручную.</p></div></section>
+    <div className="unban-user-layout">
+      <form className="panel unban-form" onSubmit={submit}>
+        <div className="panel-head"><div><span className="panel-kicker">НОВАЯ ЗАЯВКА</span><h2>Где вас заблокировали?</h2></div></div>
+        <div className="unban-platform-switch">{[['twitch', 'Twitch'], ['telegram', 'Telegram']].map(([value, label]) => <button type="button" key={value} className={form.platform === value ? 'selected' : ''} onClick={() => setPlatform(value)}>{label}</button>)}</div>
+        <div className="unban-form-grid">
+          <label>Канал или сообщество<select value={form.community} onChange={(event) => patch('community', event.target.value)}>{form.platform === 'twitch' ? <><option value="ravshann">RavshanN</option><option value="ravshanbtw">ravshanbtw</option></> : <option value="ravshann_telegram">Telegram-сообщество Равшана</option>}</select></label>
+          <label>Ник заблокированного аккаунта<input maxLength={64} value={form.banned_username} onChange={(event) => patch('banned_username', event.target.value)} placeholder={form.platform === 'twitch' ? 'Twitch-ник' : 'Telegram-ник'} /></label>
+        </div>
+        <label>Причина бана<textarea minLength={10} maxLength={1000} required value={form.ban_reason} onChange={(event) => patch('ban_reason', event.target.value)} placeholder="Что произошло и за что, по вашему мнению, вы получили бан?" /><small>{form.ban_reason.length}/1000</small></label>
+        <label>Ваша позиция<select value={form.position} onChange={(event) => patch('position', event.target.value)}>{Object.entries(UNBAN_POSITION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label>Объяснение и признание ошибки<textarea minLength={20} maxLength={2000} required value={form.statement} onChange={(event) => patch('statement', event.target.value)} placeholder="Почему решение стоит пересмотреть и что изменится после разбана?" /><small>{form.statement.length}/2000</small></label>
+        <label className="unban-accept"><input type="checkbox" checked={form.rules_accepted} onChange={(event) => patch('rules_accepted', event.target.checked)} /><span>Я честно описал ситуацию и обязуюсь соблюдать правила сообщества.</span></label>
+        <button className="primary-btn full" type="submit" disabled={submitting || !form.rules_accepted}>{submitting ? 'Отправляем…' : 'Отправить заявку'} <Send size={15} /></button>
+        <p className="form-note"><ShieldCheck size={14} /> Разбан выполняется вручную после решения модератора.</p>
+      </form>
+      <section className="panel unban-history">
+        <div className="panel-head"><div><span className="panel-kicker">ИСТОРИЯ</span><h2>Мои обращения</h2></div><span className="filter-button">{items.length}</span></div>
+        {loading && <div className="compact-empty"><span className="clips-loader" /> Загружаем заявки…</div>}
+        {!loading && items.map((item) => <article className="unban-history-card" key={item.id}>
+          <header><div><b>{UNBAN_COMMUNITY_LABELS[item.community]}</b><span>@{item.banned_username} · {new Date(item.created_at).toLocaleString('ru-RU')}</span></div><em className={`unban-status ${item.status}`}>{UNBAN_STATUS_LABELS[item.status]}</em></header>
+          <p>{item.ban_reason}</p><div className="unban-history-position">{UNBAN_POSITION_LABELS[item.position]}</div>
+          {item.moderator_comment && <div className="unban-public-reply"><span>Ответ модератора</span><p>{item.moderator_comment}</p></div>}
+          {!item.moderator_comment && !['pending', 'in_review'].includes(item.status) && <div className="unban-public-reply muted">Без комментариев</div>}
+          {['pending', 'needs_info'].includes(item.status) && <button className="outline-btn" onClick={async () => { try { const updated = await api.withdrawUnbanAppeal(item.id); setItems((current) => current.map((entry) => entry.id === item.id ? updated : entry)); notify('Заявка отозвана'); } catch (error) { notify(error.message); } }}>Отозвать заявку</button>}
+        </article>)}
+        {!loading && !items.length && <div className="compact-empty">Вы ещё не отправляли заявок</div>}
+      </section>
+    </div>
+  </main>;
+}
+
+function UnbanModerationView({ notify }) {
+  const [filters, setFilters] = useState({ status: '', platform: '', q: '' });
+  const [result, setResult] = useState({ items: [], total: 0 });
+  const [selectedId, setSelectedId] = useState('');
+  const [draft, setDraft] = useState({ status: 'in_review', moderator_comment: '', internal_note: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const load = useCallback(() => { setLoading(true); return api.loadUnbanAppeals({ ...filters, limit: 100 }).then((value) => { setResult(value); setSelectedId((current) => current || value.items[0]?.id || ''); }).finally(() => setLoading(false)); }, [filters]);
+  useEffect(() => { const timer = window.setTimeout(() => load().catch((error) => notify(error.message)), 180); return () => window.clearTimeout(timer); }, [load, notify]);
+  const selected = result.items.find((item) => item.id === selectedId) || result.items[0];
+  useEffect(() => { if (selected) setDraft({ status: ['pending', 'withdrawn'].includes(selected.status) ? 'in_review' : selected.status, moderator_comment: selected.moderator_comment || '', internal_note: selected.internal_note || '' }); }, [selected?.id]);
+  const review = async () => {
+    if (!selected) return;
+    setSaving(true);
+    try { const updated = await api.reviewUnbanAppeal(selected.id, draft); setResult((current) => ({ ...current, items: current.items.map((item) => item.id === updated.id ? updated : item) })); notify('Решение по заявке сохранено'); }
+    catch (error) { notify(error.message); }
+    finally { setSaving(false); }
+  };
+  return <main className="main-content unban-moderation-page">
+    <section className="page-heading"><div><div className="eyebrow"><ShieldAlert size={13} /> ЗАЩИЩЁННЫЙ РАЗДЕЛ</div><h1>Заявки на разбан</h1><p>Ручная очередь обращений Twitch и Telegram</p></div><span className="clips-heading-total"><b>{result.total}</b><small>заявок</small></span></section>
+    <div className="unban-moderation-filters panel"><label><Search size={14} /><input value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} placeholder="Ник пользователя" /></label><select value={filters.platform} onChange={(event) => setFilters({ ...filters, platform: event.target.value })}><option value="">Все площадки</option><option value="twitch">Twitch</option><option value="telegram">Telegram</option></select><select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Все статусы</option>{Object.entries(UNBAN_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+    <div className="unban-review-layout">
+      <section className="panel unban-queue">{loading && <div className="compact-empty"><span className="clips-loader" /> Обновляем очередь…</div>}{!loading && result.items.map((item) => <button key={item.id} className={selected?.id === item.id ? 'selected' : ''} onClick={() => setSelectedId(item.id)}><Avatar small src={item.author.avatar_url} name={item.author.display_name || item.author.login} /><span><b>@{item.banned_username}</b><small>{UNBAN_COMMUNITY_LABELS[item.community]} · {item.author.display_name || item.author.login}</small></span><em className={`unban-status ${item.status}`}>{UNBAN_STATUS_LABELS[item.status]}</em></button>)}{!loading && !result.items.length && <div className="compact-empty">Заявки не найдены</div>}</section>
+      {selected ? <section className="panel unban-review-card">
+        <header><div><span className="panel-kicker">ЗАЯВКА #{selected.id}</span><h2>@{selected.banned_username}</h2><p>{UNBAN_COMMUNITY_LABELS[selected.community]} · отправил {selected.author.display_name || selected.author.login}</p></div><em className={`unban-status ${selected.status}`}>{UNBAN_STATUS_LABELS[selected.status]}</em></header>
+        <div className="unban-review-copy"><section><span>Причина бана</span><p>{selected.ban_reason}</p></section><section><span>Позиция пользователя</span><b>{UNBAN_POSITION_LABELS[selected.position]}</b></section><section><span>Объяснение и признание ошибки</span><p>{selected.statement}</p></section></div>
+        <div className="unban-review-fields"><label>Решение<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="in_review">На рассмотрении</option><option value="approved">Одобрить разбан</option><option value="rejected">Отклонить</option><option value="duplicate">Дубликат</option></select></label><label>Ответ пользователю<textarea maxLength={2000} value={draft.moderator_comment} onChange={(event) => setDraft({ ...draft, moderator_comment: event.target.value })} placeholder="Необязательно — пользователь увидит этот текст" /></label><label>Внутренняя заметка<textarea maxLength={2000} value={draft.internal_note} onChange={(event) => setDraft({ ...draft, internal_note: event.target.value })} placeholder="Видна только модераторам" /></label><button className="primary-btn" disabled={saving || selected.status === 'withdrawn'} onClick={review}>{saving ? 'Сохраняем…' : 'Сохранить решение'}</button></div>
+      </section> : <section className="panel compact-empty">Выберите заявку</section>}
+    </div>
+  </main>;
 }
 
 function NotificationView({ notifications, markAllRead, markRead }) {
@@ -2923,10 +3025,12 @@ function App() {
   else if (route.startsWith('vod/')) page = <TwitchVodView videoId={route.slice(4)} navigate={navigate} />;
   else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
+  else if (route === 'unban') page = can(role, 'view_profile') ? <UnbanAppealsView actor={actor} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'profile') page = can(role, 'view_profile') ? <ProfileView videos={state.videos} actor={actor} navigate={navigate} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'notifications') page = can(role, 'view_profile') ? <NotificationView notifications={state.notifications} markAllRead={markAllNotifications} markRead={markNotification} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'moderation') page = can(role, 'moderate') ? <ModerationView state={state} role={role} onDecision={decide} onWatched={toggleWatched} onDelete={deleteVideo} onCategoryChange={changeVideoCategory} onContentUpdate={updateSubmissionContent} onMovieUpdate={updateMovieMetadata} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'unban-moderation') page = can(role, 'moderate') ? <UnbanModerationView notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'owner') page = can(role, 'manage') ? <OwnerView state={state} setState={setState} notify={notify} onAddCategory={apiReady ? addCategory : null} onDeleteCategory={apiReady ? deleteCategory : null} onAddModerator={apiReady ? addModerator : null} onDeleteModerator={apiReady ? deleteModerator : null} onUpdateSettings={apiReady ? updateSettings : null} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (['rules', 'privacy', 'terms'].includes(route)) page = <LegalView kind={route} />;
   else page = <StreamerHome streamer={state.streamer} navigate={navigate} />;
