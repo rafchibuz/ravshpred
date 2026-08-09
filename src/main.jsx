@@ -2699,6 +2699,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('ravshann-sidebar-collapsed') === '1');
   const moderationAudioRef = useRef(null);
   const pendingSubmissionIdsRef = useRef(new Set());
+  const notificationIdsRef = useRef(new Set());
   const actor = sessionUser
     ? {
         id: sessionUser.id,
@@ -2738,6 +2739,26 @@ function App() {
     window.clearTimeout(window.__ravshannToast);
     window.__ravshannToast = window.setTimeout(() => setToast(''), 2800);
   }, []);
+
+  useEffect(() => {
+    if (!apiReady || !can(role, 'view_profile')) return undefined;
+    notificationIdsRef.current = new Set(state.notifications.map((notice) => notice.id));
+    let active = true;
+    const pollNotifications = async () => {
+      try {
+        const notifications = await api.loadNotifications();
+        if (!active) return;
+        const fresh = notifications.filter((notice) => !notificationIdsRef.current.has(notice.id));
+        notificationIdsRef.current = new Set(notifications.map((notice) => notice.id));
+        setState((current) => ({ ...current, notifications }));
+        if (fresh.length) notify(fresh[0].title);
+      } catch {
+        // Следующая фоновая проверка повторит запрос.
+      }
+    };
+    const timer = window.setInterval(pollNotifications, 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [apiReady, role, notify]);
 
   const toggleSidebar = () => setSidebarCollapsed((current) => {
     const next = !current;

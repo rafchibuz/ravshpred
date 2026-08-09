@@ -876,7 +876,7 @@ func (s *Store) ReviewUnbanAppeal(ctx context.Context, input store.ReviewUnbanAp
 	if _, err := tx.Exec(ctx, `INSERT INTO notifications(user_id,type,title,body) VALUES($1,'unban_appeal',$2,$3)`, authorID, title, body); err != nil {
 		return domain.UnbanAppeal{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'unban_appeal_review','unban_appeal',$2,jsonb_build_object('status',$3))`, input.ModeratorID, input.AppealID, input.Status); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'unban_appeal_review','unban_appeal',$2,jsonb_build_object('status',$3::text))`, input.ModeratorID, input.AppealID, input.Status); err != nil {
 		return domain.UnbanAppeal{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

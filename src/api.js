@@ -125,6 +125,17 @@ function normalizeNewsPost(post) {
   };
 }
 
+function normalizeNotification(notice) {
+  return {
+    id: notice.id,
+    title: notice.title,
+    body: notice.body,
+    createdAt: notice.created_at,
+    read: Boolean(notice.read_at),
+    tone: /отклон|исправ|дубликат/i.test(notice.title) ? 'red' : 'green',
+  };
+}
+
 export async function loadWorkspace(role) {
   const [categoriesResponse, newsResponse, streamerResponse] = await Promise.all([
     request('/categories'),
@@ -158,14 +169,7 @@ export async function loadWorkspace(role) {
   };
   if (['user', 'moderator', 'owner'].includes(role)) {
     const notifications = await request('/notifications?limit=100');
-    result.notifications = (notifications.data || []).map((notice) => ({
-      id: notice.id,
-      title: notice.title,
-      body: notice.body,
-      createdAt: notice.created_at,
-      read: Boolean(notice.read_at),
-      tone: /отклон|исправ|дубликат/i.test(notice.title) ? 'red' : 'green',
-    }));
+    result.notifications = (notifications.data || []).map(normalizeNotification);
   }
   if (role === 'owner') {
     const [moderators, settings] = await Promise.all([
@@ -203,6 +207,10 @@ export function createSubmission(input) {
 
 export function loadMyUnbanAppeals() {
   return request('/unban-appeals/mine?limit=100').then((payload) => payload.data || []);
+}
+
+export function loadNotifications() {
+  return request('/notifications?limit=100').then((payload) => (payload.data || []).map(normalizeNotification));
 }
 
 export function createUnbanAppeal(input) {
