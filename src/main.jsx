@@ -1019,6 +1019,7 @@ function TwitchClipsView() {
           <div className="eyebrow"><Clapperboard size={13} /> TWITCH-КЛИПЫ</div>
           <h1>Топ клипы Равшана</h1>
           <p>Самые яркие моменты со стримов — выбирайте канал, период и смотрите лучшее</p>
+          <TwitchCacheBadge />
         </div>
         <div className="clips-heading-total"><strong>{visibleClips.length}</strong><span>из {clips.length} клипов</span></div>
       </section>
@@ -1078,6 +1079,28 @@ function formatTimelineTime(value) {
 
 function twitchVideoThumbnail(url) {
   return String(url || '').replace('%{width}', '640').replace('%{height}', '360');
+}
+
+function twitchCacheAge(status) {
+  const latest = (status?.items || []).reduce((value, item) => {
+    const timestamp = new Date(item.updated_at).getTime();
+    return Number.isFinite(timestamp) ? Math.max(value, timestamp) : value;
+  }, 0);
+  if (!latest) return 'Кэш подготавливается';
+  const minutes = Math.max(0, Math.floor((Date.now() - latest) / 60000));
+  return minutes < 1 ? 'Обновлено только что' : `Обновлено ${minutes} мин назад`;
+}
+
+function TwitchCacheBadge() {
+  const [status, setStatus] = useState(null);
+  useEffect(() => {
+    let active = true;
+    const load = () => api.loadTwitchCacheStatus().then((value) => { if (active) setStatus(value); }).catch(() => {});
+    load();
+    const timer = window.setInterval(load, 60000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  return <span className="twitch-cache-badge"><Clock3 size={11} /> {status?.refreshing ? 'Обновляем данные…' : twitchCacheAge(status)}</span>;
 }
 
 function TwitchVodCard({ video, navigate, compact = false }) {
@@ -1175,7 +1198,7 @@ function TwitchVodsView({ navigate }) {
       : new Date(a.created_at) - new Date(b.created_at)));
   }, [videos, sort, direction, period]);
   return <main className="main-content vods-page">
-    <section className="page-heading clips-heading"><div><div className="eyebrow"><VideoIcon size={13} /> TWITCH VOD</div><h1>Записи стримов Равшана</h1><p>Прошедшие эфиры двух каналов — откройте запись и посмотрите клипы на временной линии.</p></div><div className="clips-heading-total"><strong>{visibleVideos.length}</strong><span>записей</span></div></section>
+    <section className="page-heading clips-heading"><div><div className="eyebrow"><VideoIcon size={13} /> TWITCH VOD</div><h1>Записи стримов Равшана</h1><p>Прошедшие эфиры двух каналов — откройте запись и посмотрите клипы на временной линии.</p><TwitchCacheBadge /></div><div className="clips-heading-total"><strong>{visibleVideos.length}</strong><span>записей</span></div></section>
     <section className="vods-filters">
       <div className="clips-filter-group"><span>Канал</span>{[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
       <div className="clips-filter-group"><span>Период</span>{[['all', 'Все'], ['month', 'Месяц'], ['week', 'Неделя']].map(([value, label]) => <button key={value} className={period === value ? 'selected' : ''} onClick={() => setPeriod(value)}>{label}</button>)}</div>
@@ -2257,7 +2280,14 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
   const [categoryDeleteArmed, setCategoryDeleteArmed] = useState('');
   const [settings, setSettings] = useState(state.settings);
   const [linksEditorOpen, setLinksEditorOpen] = useState(false);
+  const [twitchCache, setTwitchCache] = useState(null);
+  const [twitchCacheRefreshing, setTwitchCacheRefreshing] = useState(false);
   useEffect(() => setSettings(state.settings), [state.settings]);
+  useEffect(() => {
+    let active = true;
+    api.loadTwitchCacheStatus().then((value) => { if (active) setTwitchCache(value); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const persistSettings = async (nextSettings) => {
     if (onUpdateSettings) await onUpdateSettings(nextSettings);
     else setState((current) => ({ ...current, settings: nextSettings, audit: ['Ravshann обновил глобальные настройки', ...current.audit] }));
@@ -2434,6 +2464,7 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
             Разрешить голосовать за собственные видео
           </label>
           <div className="site-links-settings-summary"><div><h3>Ссылки на главной</h3><p className="settings-help">Все разделы, плашки, порядок и иконки открываются в отдельном удобном окне.</p></div><span>{(settings.siteLinks || []).length} плашек</span><button type="button" className="outline-btn" onClick={() => setLinksEditorOpen(true)}><Settings size={15} /> Открыть редактор</button></div>
+          <div className="twitch-cache-settings"><div><h3>Кэш Twitch</h3><p>{twitchCache?.refreshing || twitchCacheRefreshing ? 'Фоновое обновление выполняется' : twitchCacheAge(twitchCache)}</p></div><button type="button" className="outline-btn" disabled={twitchCache?.refreshing || twitchCacheRefreshing} onClick={async () => { try { setTwitchCacheRefreshing(true); await api.refreshTwitchCache(); setTwitchCache((current) => ({ ...(current || {}), refreshing: true })); notify('Обновление Twitch запущено в фоне'); window.setTimeout(async () => { try { setTwitchCache(await api.loadTwitchCacheStatus()); } finally { setTwitchCacheRefreshing(false); } }, 5000); } catch (error) { setTwitchCacheRefreshing(false); notify(error.message); } }}><Clock3 size={14} /> Обновить сейчас</button></div>
           <button
             className="primary-btn"
             onClick={async () => {

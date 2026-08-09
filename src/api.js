@@ -235,6 +235,14 @@ export function loadTwitchVideo(videoId) {
   return request(`/twitch/videos/${encodeURIComponent(videoId)}`).then((payload) => payload.data || null);
 }
 
+export function loadTwitchCacheStatus() {
+  return request('/twitch/cache-status').then((payload) => payload.data || { items: [], refreshing: false });
+}
+
+export function refreshTwitchCache() {
+  return request('/owner/twitch-cache/refresh', { method: 'POST' }).then((payload) => payload.data || null);
+}
+
 export function vote(videoId, value) {
   return request(`/videos/${videoId}/vote`, { method: 'PUT', body: { value } });
 }

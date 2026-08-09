@@ -32,13 +32,8 @@ type Server struct {
 	streamerMu         sync.Mutex
 	streamerCache      domain.StreamerStatus
 	streamerCacheUntil time.Time
-	clipsMu            sync.Mutex
-	clipsCache         map[string]clipsCacheEntry
-}
-
-type clipsCacheEntry struct {
-	Items []twitch.Clip
-	Until time.Time
+	twitchRefreshMu    sync.Mutex
+	twitchRefreshing   bool
 }
 
 type actorContext struct {
@@ -56,9 +51,8 @@ func New(cfg config.Config, database store.Store, youtubeClient youtube.Client, 
 	}
 	return &Server{
 		cfg: cfg, store: database, youtube: youtubeClient,
-		twitch:     twitch.New(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchRedirectURL),
-		logger:     logger,
-		clipsCache: make(map[string]clipsCacheEntry),
+		twitch: twitch.New(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchRedirectURL),
+		logger: logger,
 	}
 }
 
@@ -72,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/twitch/clips", s.twitchClips)
 	mux.HandleFunc("GET /api/twitch/videos", s.twitchVideos)
 	mux.HandleFunc("GET /api/twitch/videos/{id}", s.twitchVideo)
+	mux.HandleFunc("GET /api/twitch/cache-status", s.twitchCacheStatus)
 	mux.HandleFunc("GET /api/news", s.news)
 	mux.HandleFunc("POST /api/news/{id}/comments", s.createNewsComment)
 	mux.HandleFunc("DELETE /api/news/comments/{id}", s.deleteNewsComment)
@@ -103,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/owner/settings", s.updateSettings)
 	mux.HandleFunc("POST /api/owner/news", s.createNewsPost)
 	mux.HandleFunc("DELETE /api/owner/news/{id}", s.deleteNewsPost)
+	mux.HandleFunc("POST /api/owner/twitch-cache/refresh", s.refreshTwitchCacheNow)
 	return s.middleware(mux)
 }
 
@@ -120,14 +116,10 @@ func (s *Server) twitchVideos(w http.ResponseWriter, r *http.Request) {
 		}
 		logins = []string{channel}
 	}
-	result := make([]twitch.Video, 0, 100)
-	for _, login := range logins {
-		items, err := s.twitch.VideosByLogin(r.Context(), login)
-		if err != nil {
-			s.logger.Warn("twitch videos unavailable", "login", login, "error", err)
-			continue
-		}
-		result = append(result, items...)
+	result, err := s.store.ListTwitchVideos(r.Context(), logins)
+	if err != nil {
+		s.internalError(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
@@ -142,24 +134,17 @@ func (s *Server) twitchVideo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_video", "Не указан VOD")
 		return
 	}
-	video, err := s.twitch.VideoByID(r.Context(), id)
+	video, err := s.store.TwitchVideoByID(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "video_not_found", "Запись стрима не найдена")
 		return
 	}
-	duration, err := time.ParseDuration(video.Duration)
-	if err != nil || duration <= 0 {
-		duration = 24 * time.Hour
+	clips, err := s.store.ListTwitchClipsByVideo(r.Context(), id)
+	if err != nil {
+		s.internalError(w, err)
+		return
 	}
-	end := video.CreatedAt.Add(duration)
-	clips := s.loadTwitchClips(r.Context(), "vod="+id, []string{video.UserLogin}, &video.CreatedAt, &end, 10*time.Minute)
-	filtered := make([]twitch.Clip, 0, len(clips))
-	for _, clip := range clips {
-		if clip.VideoID == id {
-			filtered = append(filtered, clip)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"video": video, "clips": filtered}})
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"video": video, "clips": clips}})
 }
 
 func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +152,6 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "twitch_not_configured", "Twitch API не настроен")
 		return
 	}
-	cacheKey := r.URL.Query().Encode()
 	channel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
 	logins := []string{"ravshann", "ravshanbtw"}
 	if channel != "" && channel != "all" {
@@ -211,11 +195,11 @@ func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ttl := 10 * time.Minute
-	if r.URL.Query().Get("period") == "all" {
-		ttl = time.Hour
+	items, err := s.store.ListTwitchClips(r.Context(), logins, startedAt, endedAt)
+	if err != nil {
+		s.internalError(w, err)
+		return
 	}
-	items := s.loadTwitchClips(r.Context(), cacheKey, logins, startedAt, endedAt, ttl)
 	if r.URL.Query().Get("period") == "last_stream" {
 		items = clipsFromLastCompletedStreams(items)
 	}
@@ -244,13 +228,7 @@ func clipsFromLastCompletedStreams(items []twitch.Clip) []twitch.Clip {
 	return result
 }
 
-func (s *Server) loadTwitchClips(ctx context.Context, cacheKey string, logins []string, startedAt, endedAt *time.Time, ttl time.Duration) []twitch.Clip {
-	s.clipsMu.Lock()
-	if cached, ok := s.clipsCache[cacheKey]; ok && time.Now().Before(cached.Until) {
-		s.clipsMu.Unlock()
-		return cached.Items
-	}
-	s.clipsMu.Unlock()
+func (s *Server) fetchTwitchClips(ctx context.Context, logins []string, startedAt, endedAt *time.Time) []twitch.Clip {
 	items := make([]twitch.Clip, 0, 100)
 	for _, login := range logins {
 		clips, err := s.twitch.ClipsByLogin(ctx, login, startedAt, endedAt)
@@ -259,11 +237,6 @@ func (s *Server) loadTwitchClips(ctx context.Context, cacheKey string, logins []
 			continue
 		}
 		items = append(items, clips...)
-	}
-	if ctx.Err() == nil {
-		s.clipsMu.Lock()
-		s.clipsCache[cacheKey] = clipsCacheEntry{Items: items, Until: time.Now().Add(ttl)}
-		s.clipsMu.Unlock()
 	}
 	return items
 }
@@ -274,13 +247,7 @@ func (s *Server) StartClipCacheWarmer(ctx context.Context) {
 	}
 	go func() {
 		warm := func() {
-			now := time.Now().UTC()
-			weekStart := now.AddDate(0, 0, -7)
-			channels := []string{"ravshann", "ravshanbtw"}
-			s.loadTwitchClips(ctx, "channel=all&period=week", channels, &weekStart, &now, 10*time.Minute)
-			if ctx.Err() == nil {
-				s.loadTwitchClips(ctx, "channel=all&period=all", channels, nil, nil, time.Hour)
-			}
+			s.refreshTwitchCache(ctx, false)
 		}
 		warm()
 		ticker := time.NewTicker(10 * time.Minute)
@@ -294,6 +261,88 @@ func (s *Server) StartClipCacheWarmer(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (s *Server) refreshTwitchCache(ctx context.Context, forceFull bool) {
+	s.twitchRefreshMu.Lock()
+	if s.twitchRefreshing {
+		s.twitchRefreshMu.Unlock()
+		return
+	}
+	s.twitchRefreshing = true
+	s.twitchRefreshMu.Unlock()
+	defer func() {
+		s.twitchRefreshMu.Lock()
+		s.twitchRefreshing = false
+		s.twitchRefreshMu.Unlock()
+	}()
+
+	channels := []string{"ravshann", "ravshanbtw"}
+	videos := make([]twitch.Video, 0, 100)
+	for _, login := range channels {
+		items, err := s.twitch.VideosByLogin(ctx, login)
+		if err != nil {
+			s.logger.Warn("twitch videos refresh failed", "login", login, "error", err)
+			continue
+		}
+		videos = append(videos, items...)
+	}
+	if len(videos) > 0 {
+		if err := s.store.UpsertTwitchVideos(ctx, videos, "videos"); err != nil {
+			s.logger.Error("persist twitch videos failed", "error", err)
+		}
+	}
+
+	now := time.Now().UTC()
+	weekStart := now.AddDate(0, 0, -7)
+	recent := s.fetchTwitchClips(ctx, channels, &weekStart, &now)
+	if len(recent) > 0 {
+		if err := s.store.UpsertTwitchClips(ctx, recent, "clips:recent"); err != nil {
+			s.logger.Error("persist recent twitch clips failed", "error", err)
+		}
+	}
+
+	_, statusErr := s.store.TwitchCacheStatus(ctx, "clips:all")
+	if forceFull || errors.Is(statusErr, store.ErrNotFound) {
+		all := s.fetchTwitchClips(ctx, channels, nil, nil)
+		if len(all) > 0 {
+			if err := s.store.UpsertTwitchClips(ctx, all, "clips:all"); err != nil {
+				s.logger.Error("persist full twitch clip history failed", "error", err)
+			}
+		}
+	}
+	s.logger.Info("twitch cache refresh completed", "videos", len(videos), "recent_clips", len(recent))
+}
+
+func (s *Server) twitchCacheStatus(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.TwitchCacheStatuses(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	s.twitchRefreshMu.Lock()
+	refreshing := s.twitchRefreshing
+	s.twitchRefreshMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"items": items, "refreshing": refreshing}})
+}
+
+func (s *Server) refreshTwitchCacheNow(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "manage") == nil {
+		return
+	}
+	s.twitchRefreshMu.Lock()
+	refreshing := s.twitchRefreshing
+	s.twitchRefreshMu.Unlock()
+	if refreshing {
+		writeJSON(w, http.StatusAccepted, map[string]any{"data": map[string]any{"refreshing": true}})
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		s.refreshTwitchCache(ctx, false)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{"data": map[string]any{"refreshing": true}})
 }
 
 func (s *Server) middleware(next http.Handler) http.Handler {

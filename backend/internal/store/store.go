@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ravshann/predlozhka/backend/internal/domain"
+	"github.com/ravshann/predlozhka/backend/internal/twitch"
 )
 
 var (
@@ -85,6 +86,12 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
+type TwitchCacheStatus struct {
+	Key       string    `json:"key"`
+	ItemCount int       `json:"item_count"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Store interface {
 	Ping(context.Context) error
 	Close()
@@ -123,6 +130,14 @@ type Store interface {
 	DeleteNewsPost(context.Context, string, string) error
 	CreateNewsComment(context.Context, string, string, string) (domain.NewsComment, error)
 	DeleteNewsComment(context.Context, string, string, bool) error
+	UpsertTwitchClips(context.Context, []twitch.Clip, string) error
+	ListTwitchClips(context.Context, []string, *time.Time, *time.Time) ([]twitch.Clip, error)
+	ListTwitchClipsByVideo(context.Context, string) ([]twitch.Clip, error)
+	UpsertTwitchVideos(context.Context, []twitch.Video, string) error
+	ListTwitchVideos(context.Context, []string) ([]twitch.Video, error)
+	TwitchVideoByID(context.Context, string) (twitch.Video, error)
+	TwitchCacheStatuses(context.Context) ([]TwitchCacheStatus, error)
+	TwitchCacheStatus(context.Context, string) (TwitchCacheStatus, error)
 
 	SessionByTokenHash(context.Context, []byte) (Session, error)
 	CreateSession(context.Context, string, []byte, []byte, time.Time) error

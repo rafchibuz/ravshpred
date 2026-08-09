@@ -18,6 +18,7 @@ import (
 
 	"github.com/ravshann/predlozhka/backend/internal/domain"
 	"github.com/ravshann/predlozhka/backend/internal/store"
+	"github.com/ravshann/predlozhka/backend/internal/twitch"
 )
 
 //go:embed migrations/000002_news.sql
@@ -31,6 +32,9 @@ var moviesSchema string
 
 //go:embed migrations/000005_submission_kinds.sql
 var submissionKindsSchema string
+
+//go:embed migrations/000006_twitch_cache.sql
+var twitchCacheSchema string
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -67,11 +71,202 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("apply submission kinds schema: %w", err)
 	}
+	if _, err := pool.Exec(ctx, twitchCacheSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply twitch cache schema: %w", err)
+	}
 	return result, nil
 }
 
 func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 func (s *Store) Close()                         { s.pool.Close() }
+
+func (s *Store) UpsertTwitchClips(ctx context.Context, items []twitch.Clip, cacheKey string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	batch := &pgx.Batch{}
+	for _, item := range items {
+		batch.Queue(`
+			INSERT INTO twitch_clips (
+				id,url,embed_url,broadcaster_name,creator_name,video_id,title,view_count,
+				created_at,thumbnail_url,duration,vod_offset,fetched_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+			ON CONFLICT (id) DO UPDATE SET
+				url=EXCLUDED.url,embed_url=EXCLUDED.embed_url,broadcaster_name=EXCLUDED.broadcaster_name,
+				creator_name=EXCLUDED.creator_name,video_id=EXCLUDED.video_id,title=EXCLUDED.title,
+				view_count=EXCLUDED.view_count,created_at=EXCLUDED.created_at,
+				thumbnail_url=EXCLUDED.thumbnail_url,duration=EXCLUDED.duration,
+				vod_offset=EXCLUDED.vod_offset,fetched_at=now()`,
+			item.ID, item.URL, item.EmbedURL, item.BroadcasterName, item.CreatorName, item.VideoID,
+			item.Title, item.ViewCount, item.CreatedAt, item.ThumbnailURL, item.Duration, item.VODOffset)
+	}
+	batch.Queue(`
+		INSERT INTO twitch_cache_state (cache_key,item_count,updated_at) VALUES ($1,$2,now())
+		ON CONFLICT (cache_key) DO UPDATE SET item_count=EXCLUDED.item_count,updated_at=now()`, cacheKey, len(items))
+	results := tx.SendBatch(ctx, batch)
+	if err := results.Close(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) ListTwitchClips(ctx context.Context, logins []string, startedAt, endedAt *time.Time) ([]twitch.Clip, error) {
+	conditions := []string{"true"}
+	args := make([]any, 0, 3)
+	if len(logins) > 0 {
+		args = append(args, logins)
+		conditions = append(conditions, fmt.Sprintf("lower(broadcaster_name)=ANY($%d)", len(args)))
+	}
+	if startedAt != nil {
+		args = append(args, *startedAt)
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
+	if endedAt != nil {
+		args = append(args, *endedAt)
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", len(args)))
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id,url,embed_url,broadcaster_name,creator_name,video_id,title,view_count,
+			created_at,thumbnail_url,duration,vod_offset
+		FROM twitch_clips WHERE `+strings.Join(conditions, " AND ")+` ORDER BY created_at DESC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTwitchClips(rows)
+}
+
+func (s *Store) ListTwitchClipsByVideo(ctx context.Context, videoID string) ([]twitch.Clip, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id,url,embed_url,broadcaster_name,creator_name,video_id,title,view_count,
+			created_at,thumbnail_url,duration,vod_offset
+		FROM twitch_clips WHERE video_id=$1 ORDER BY created_at DESC`, videoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTwitchClips(rows)
+}
+
+func scanTwitchClips(rows pgx.Rows) ([]twitch.Clip, error) {
+	result := make([]twitch.Clip, 0)
+	for rows.Next() {
+		var item twitch.Clip
+		if err := rows.Scan(&item.ID, &item.URL, &item.EmbedURL, &item.BroadcasterName, &item.CreatorName,
+			&item.VideoID, &item.Title, &item.ViewCount, &item.CreatedAt, &item.ThumbnailURL,
+			&item.Duration, &item.VODOffset); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) UpsertTwitchVideos(ctx context.Context, items []twitch.Video, cacheKey string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	batch := &pgx.Batch{}
+	for _, item := range items {
+		batch.Queue(`
+			INSERT INTO twitch_videos (
+				id,stream_id,user_id,user_login,user_name,title,description,created_at,published_at,
+				url,thumbnail_url,view_count,language,type,duration,fetched_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
+			ON CONFLICT (id) DO UPDATE SET
+				stream_id=EXCLUDED.stream_id,user_id=EXCLUDED.user_id,user_login=EXCLUDED.user_login,
+				user_name=EXCLUDED.user_name,title=EXCLUDED.title,description=EXCLUDED.description,
+				created_at=EXCLUDED.created_at,published_at=EXCLUDED.published_at,url=EXCLUDED.url,
+				thumbnail_url=EXCLUDED.thumbnail_url,view_count=EXCLUDED.view_count,
+				language=EXCLUDED.language,type=EXCLUDED.type,duration=EXCLUDED.duration,fetched_at=now()`,
+			item.ID, item.StreamID, item.UserID, item.UserLogin, item.UserName, item.Title, item.Description,
+			item.CreatedAt, item.PublishedAt, item.URL, item.ThumbnailURL, item.ViewCount,
+			item.Language, item.Type, item.Duration)
+	}
+	batch.Queue(`
+		INSERT INTO twitch_cache_state (cache_key,item_count,updated_at) VALUES ($1,$2,now())
+		ON CONFLICT (cache_key) DO UPDATE SET item_count=EXCLUDED.item_count,updated_at=now()`, cacheKey, len(items))
+	results := tx.SendBatch(ctx, batch)
+	if err := results.Close(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) ListTwitchVideos(ctx context.Context, logins []string) ([]twitch.Video, error) {
+	args := []any{}
+	condition := "true"
+	if len(logins) > 0 {
+		args = append(args, logins)
+		condition = "lower(user_login)=ANY($1)"
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id,stream_id,user_id,user_login,user_name,title,description,created_at,published_at,
+			url,thumbnail_url,view_count,language,type,duration
+		FROM twitch_videos WHERE `+condition+` ORDER BY created_at DESC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]twitch.Video, 0)
+	for rows.Next() {
+		var item twitch.Video
+		if err := rows.Scan(&item.ID, &item.StreamID, &item.UserID, &item.UserLogin, &item.UserName,
+			&item.Title, &item.Description, &item.CreatedAt, &item.PublishedAt, &item.URL,
+			&item.ThumbnailURL, &item.ViewCount, &item.Language, &item.Type, &item.Duration); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) TwitchVideoByID(ctx context.Context, id string) (twitch.Video, error) {
+	var item twitch.Video
+	err := s.pool.QueryRow(ctx, `
+		SELECT id,stream_id,user_id,user_login,user_name,title,description,created_at,published_at,
+			url,thumbnail_url,view_count,language,type,duration
+		FROM twitch_videos WHERE id=$1`, id).Scan(
+		&item.ID, &item.StreamID, &item.UserID, &item.UserLogin, &item.UserName, &item.Title,
+		&item.Description, &item.CreatedAt, &item.PublishedAt, &item.URL, &item.ThumbnailURL,
+		&item.ViewCount, &item.Language, &item.Type, &item.Duration)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return twitch.Video{}, store.ErrNotFound
+	}
+	return item, err
+}
+
+func (s *Store) TwitchCacheStatuses(ctx context.Context) ([]store.TwitchCacheStatus, error) {
+	rows, err := s.pool.Query(ctx, `SELECT cache_key,item_count,updated_at FROM twitch_cache_state ORDER BY cache_key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]store.TwitchCacheStatus, 0)
+	for rows.Next() {
+		var item store.TwitchCacheStatus
+		if err := rows.Scan(&item.Key, &item.ItemCount, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) TwitchCacheStatus(ctx context.Context, key string) (store.TwitchCacheStatus, error) {
+	var result store.TwitchCacheStatus
+	err := s.pool.QueryRow(ctx, `SELECT cache_key,item_count,updated_at FROM twitch_cache_state WHERE cache_key=$1`, key).
+		Scan(&result.Key, &result.ItemCount, &result.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.TwitchCacheStatus{}, store.ErrNotFound
+	}
+	return result, err
+}
 
 func (s *Store) ListCategories(ctx context.Context) ([]domain.Category, error) {
 	rows, err := s.pool.Query(ctx, `
