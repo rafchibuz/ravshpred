@@ -491,7 +491,10 @@
 .home-clips-arrow.is-right { right: 8px; }
 .home-clips-row .clip-card { flex: 0 0 clamp(235px, 23vw, 320px); scroll-snap-align: start; }
 .home-vods-row .vod-card { flex: 0 0 clamp(250px, 27vw, 360px); scroll-snap-align: start; }
-.vod-card.is-compact > div:last-child { min-height: 105px; }
+.home-clips-section .vod-card.is-compact > div:last-child { min-height: 92px; padding: 10px; }
+.home-clips-section .vod-card.is-compact h2 { min-height: 29px; margin: 0; font-size: 11px; line-height: 1.3; letter-spacing: 0; }
+.home-clips-section .vod-card.is-compact strong { font-size: 8px; }
+.home-clips-section .vod-card.is-compact p { font-size: 8px; }
 .clip-card.is-compact .clip-card-body { min-height: 92px; padding: 10px; }
 .clip-card.is-compact .clip-card-body h2 { min-height: 29px; font-size: 11px; }
 .home-clips-loading, .home-clips-empty { min-height: 160px; display: flex; align-items: center; justify-content: center; gap: 9px; color: #827a88; font-size: 9px; }
