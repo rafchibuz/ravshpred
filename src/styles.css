@@ -449,15 +449,27 @@
 .vod-player { overflow: hidden; aspect-ratio: 16/9; border: 1px solid #342d3a; border-radius: 12px; background: #000; }
 .vod-player iframe { width: 100%; height: 100%; border: 0; }
 .vod-info { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 20px 2px 18px; }
-.vod-info h1 { margin: 5px 0 7px; font-size: clamp(21px,3vw,34px); }
-.vod-info p { margin: 0; color: #88808d; font-size: 10px; }
-.vod-info > div:last-child { display: grid; justify-items: end; gap: 8px; color: #9c72bc; font-size: 10px; white-space: nowrap; }
-.vod-info > div:last-child strong { display: inline-flex; align-items: center; gap: 6px; color: #e25c75; }
+.vod-info h1 { max-width: 1000px; margin: 7px 0 9px; font-size: clamp(22px,2.35vw,31px); line-height: 1.12; letter-spacing: -.035em; }
+.vod-info p { margin: 0; color: #88808d; font-size: 9px; }
+.vod-stats { display: flex; align-items: stretch; gap: 10px; white-space: nowrap; }
+.vod-stats > div { min-width: 130px; display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid #352e3b; border-radius: 9px; color: #bd72ed; background: #17141b; }
+.vod-stats > div:first-child { color: #ef5f83; }
+.vod-stats span { display: grid; gap: 2px; }
+.vod-stats b { color: #f5edf8; font-size: 11px; }
+.vod-stats small { color: #807788; font-size: 7px; font-weight: 500; }
 .vod-timeline-section { margin-bottom: 18px; padding: 18px 20px; border: 1px solid #342e3a; border-radius: 11px; background: #17151a; }
 .vod-timeline-section > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .vod-timeline-section h2 { margin: 5px 0 0; font-size: 21px; }
 .vod-timeline-section > header > span { color: #a96adb; font-size: 9px; }
 .vod-clip-filters { display: flex; align-items: end; justify-content: flex-end; gap: 12px; margin: -5px 0 18px; padding: 12px; border: 1px solid #302a35; border-radius: 9px; background: #131116; }
+.vod-top-filter { display: grid; gap: 5px; color: #817987; font-size: 7px; }
+.vod-top-filter select { width: 140px; height: 38px; }
+.vod-timeline-zoom { display: grid; grid-template-columns: auto auto minmax(220px,1fr); align-items: center; gap: 12px; margin: 0 7px 10px; color: #817987; font-size: 8px; }
+.vod-timeline-zoom > div { display: flex; gap: 5px; }
+.vod-timeline-zoom button { min-width: 35px; height: 27px; border: 1px solid #3d3444; border-radius: 6px; color: #a79dab; background: #121015; font-size: 8px; }
+.vod-timeline-zoom button.selected { border-color: #9b4dd4; color: #fff; background: #522574; }
+.vod-timeline-zoom label { display: grid; grid-template-columns: auto minmax(120px,1fr); align-items: center; justify-self: end; width: min(470px,100%); gap: 10px; }
+.vod-timeline-zoom input { width: 100%; accent-color: #a954e5; }
 .vod-timeline { position: relative; height: 54px; margin: 0 8px; }
 .vod-timeline-track { position: absolute; inset: 25px 0 auto; height: 4px; border-radius: 3px; background: linear-gradient(90deg,#6c2d98,#bd67f4); }
 .vod-timeline button { position: absolute; z-index: 2; top: 18px; width: 18px; height: 18px; display: grid; place-items: center; transform: translateX(-50%); border: 3px solid #d8a0ff; border-radius: 50%; background: #542277; box-shadow: 0 0 0 3px rgba(150,70,220,.16); }
@@ -580,10 +592,13 @@ body.modal-open { overflow: hidden; }
   .clips-grid { grid-template-columns: 1fr; }
   .vods-grid { grid-template-columns: 1fr; }
   .vod-info { align-items: flex-start; flex-direction: column; }
-  .vod-info > div:last-child { justify-items: start; }
+  .vod-stats { width: 100%; }
+  .vod-stats > div { min-width: 0; flex: 1; }
   .vod-timeline-section { padding: 15px 12px; }
   .vod-clip-filters { align-items: stretch; flex-direction: column; }
-  .vod-clip-filters .clips-sort, .vod-clip-filters .clips-min-views { width: 100%; }
+  .vod-clip-filters .clips-sort, .vod-clip-filters .clips-min-views, .vod-top-filter, .vod-top-filter select { width: 100%; }
+  .vod-timeline-zoom { grid-template-columns: 1fr; }
+  .vod-timeline-zoom label { grid-template-columns: 1fr; justify-self: stretch; width: 100%; }
   .clip-card-body { min-height: 96px; }
   .clip-play { opacity: 1; }
   .clip-modal-backdrop { padding: 0; }

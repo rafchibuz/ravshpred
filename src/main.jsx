@@ -1069,6 +1069,13 @@ function formatVodDuration(value) {
   return hours ? `${hours} ч ${minutes} мин` : `${minutes} мин`;
 }
 
+function formatTimelineTime(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
 function twitchVideoThumbnail(url) {
   return String(url || '').replace('%{width}', '640').replace('%{height}', '360');
 }
@@ -1190,6 +1197,9 @@ function TwitchVodView({ videoId, navigate }) {
   const [clipDirection, setClipDirection] = useState('desc');
   const [minimumViews, setMinimumViews] = useState(0);
   const [hideDuplicates, setHideDuplicates] = useState(true);
+  const [topCount, setTopCount] = useState('10');
+  const [timelineZoom, setTimelineZoom] = useState(1);
+  const [timelineStart, setTimelineStart] = useState(0);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -1202,22 +1212,42 @@ function TwitchVodView({ videoId, navigate }) {
   const filteredClips = useMemo(() => {
     let items = (data?.clips || []).filter((clip) => Number(clip.view_count || 0) >= minimumViews);
     if (hideDuplicates) items = deduplicateTwitchClips(items);
+    if (topCount !== 'all') {
+      items = [...items].sort((a, b) => Number(b.view_count) - Number(a.view_count)).slice(0, Number(topCount));
+    }
     const multiplier = clipDirection === 'asc' ? 1 : -1;
     return [...items].sort((a, b) => multiplier * (clipSort === 'new'
       ? new Date(a.created_at) - new Date(b.created_at)
       : Number(a.view_count) - Number(b.view_count)));
-  }, [data, clipSort, clipDirection, minimumViews, hideDuplicates]);
+  }, [data, clipSort, clipDirection, minimumViews, hideDuplicates, topCount]);
+  const fullDuration = Math.max(1, twitchDurationSeconds(data?.video?.duration));
+  const timelineWindow = fullDuration / timelineZoom;
+  const maximumTimelineStart = Math.max(0, fullDuration - timelineWindow);
+  const safeTimelineStart = Math.min(timelineStart, maximumTimelineStart);
+  const timelineEnd = Math.min(fullDuration, safeTimelineStart + timelineWindow);
+  const timelineClips = filteredClips.filter((clip) => {
+    const offset = Number(clip.vod_offset);
+    return clip.vod_offset != null && offset >= safeTimelineStart && offset <= timelineEnd;
+  });
+  const changeTimelineZoom = (nextZoom) => {
+    const normalized = Math.min(8, Math.max(1, nextZoom));
+    const nextWindow = fullDuration / normalized;
+    setTimelineStart((current) => Math.min(
+      Math.max(0, fullDuration - nextWindow),
+      Math.max(0, current + timelineWindow / 2 - nextWindow / 2),
+    ));
+    setTimelineZoom(normalized);
+  };
   if (loading) return <main className="main-content vod-detail-page"><div className="clips-state"><span className="clips-loader" />Загружаем запись…</div></main>;
   if (error || !data?.video) return <main className="main-content vod-detail-page"><button className="ghost-btn" onClick={() => navigate('vods')}>← К записям</button><div className="clips-state error"><VideoIcon size={28} /><strong>Запись не найдена</strong><span>{error}</span></div></main>;
   const { video } = data;
   const clips = data.clips || [];
-  const duration = Math.max(1, twitchDurationSeconds(video.duration));
   const parent = window.location.hostname || 'localhost';
   return <main className="main-content vod-detail-page">
     <div className="vod-detail-actions"><button className="ghost-btn" onClick={() => navigate('vods')}>← Все записи</button><a className="stream-open-link" href={video.url} target="_blank" rel="noreferrer">Открыть на Twitch <ExternalLink size={14} /></a></div>
     <section className="vod-player"><iframe title={video.title} src={`https://player.twitch.tv/?video=v${encodeURIComponent(video.id)}&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen /></section>
-    <section className="vod-info"><div><span className="panel-kicker">{video.user_name || video.user_login}</span><h1>{video.title}</h1><p>{new Date(video.created_at).toLocaleString('ru-RU')} · {formatVodDuration(video.duration)}</p></div><div><strong><Eye size={15} /> {Number(video.view_count || 0).toLocaleString('ru-RU')}</strong><span>{clips.length} клипов</span></div></section>
-    <section className="vod-timeline-section"><header><div><span className="panel-kicker">КЛИПЫ ЭФИРА</span><h2>Временная линия стрима</h2></div><span>{filteredClips.length} из {clips.length} моментов</span></header><div className="vod-clip-filters"><label className="clips-min-views">Минимум просмотров<input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /></label><label className="clips-deduplicate"><input type="checkbox" checked={hideDuplicates} onChange={(event) => setHideDuplicates(event.target.checked)} /><span>Скрывать клипы с одного момента</span></label><div className="clips-sort"><label>Сортировка<select value={clipSort} onChange={(event) => setClipSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label><button onClick={() => setClipDirection((value) => value === 'desc' ? 'asc' : 'desc')} aria-label="Изменить направление сортировки">{clipDirection === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button></div></div><div className="vod-timeline"><div className="vod-timeline-track" />{filteredClips.filter((clip) => clip.vod_offset != null).map((clip) => <button key={clip.id} style={{ left: `${Math.min(100, Math.max(0, Number(clip.vod_offset) / duration * 100))}%` }} onClick={() => setSelected(clip)} title={`${clip.title} · ${Math.floor(Number(clip.vod_offset) / 60)} мин`}><span>{Number(clip.view_count || 0).toLocaleString('ru-RU')}</span></button>)}</div><div className="vod-timeline-scale"><span>0:00</span><span>{formatVodDuration(video.duration)}</span></div></section>
+    <section className="vod-info"><div><span className="panel-kicker">{video.user_name || video.user_login}</span><h1>{video.title}</h1><p>{new Date(video.created_at).toLocaleString('ru-RU')} · {formatVodDuration(video.duration)}</p></div><div className="vod-stats"><div><Eye size={16} /><span><b>{Number(video.view_count || 0).toLocaleString('ru-RU')}</b><small>просмотров записи</small></span></div><div><Clapperboard size={16} /><span><b>{clips.length}</b><small>клипов создано</small></span></div></div></section>
+    <section className="vod-timeline-section"><header><div><span className="panel-kicker">КЛИПЫ ЭФИРА</span><h2>Временная линия стрима</h2></div><span>{filteredClips.length} из {clips.length} моментов</span></header><div className="vod-clip-filters"><label className="vod-top-filter">Показать<select value={topCount} onChange={(event) => setTopCount(event.target.value)}><option value="10">Топ-10 клипов</option><option value="25">Топ-25 клипов</option><option value="50">Топ-50 клипов</option><option value="all">Все клипы</option></select></label><label className="clips-min-views">Минимум просмотров<input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /></label><label className="clips-deduplicate"><input type="checkbox" checked={hideDuplicates} onChange={(event) => setHideDuplicates(event.target.checked)} /><span>Скрывать клипы с одного момента</span></label><div className="clips-sort"><label>Сортировка<select value={clipSort} onChange={(event) => setClipSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label><button onClick={() => setClipDirection((value) => value === 'desc' ? 'asc' : 'desc')} aria-label="Изменить направление сортировки">{clipDirection === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button></div></div><div className="vod-timeline-zoom"><span>Масштаб дорожки</span><div>{[1, 2, 4, 8].map((value) => <button key={value} className={timelineZoom === value ? 'selected' : ''} onClick={() => changeTimelineZoom(value)}>×{value}</button>)}</div><label><span>Участок {formatTimelineTime(safeTimelineStart)}—{formatTimelineTime(timelineEnd)}</span><input type="range" min="0" max={Math.max(0, Math.floor(maximumTimelineStart))} step="60" value={Math.floor(safeTimelineStart)} disabled={timelineZoom === 1} onChange={(event) => setTimelineStart(Number(event.target.value))} /></label></div><div className="vod-timeline"><div className="vod-timeline-track" />{timelineClips.map((clip) => <button key={clip.id} style={{ left: `${Math.min(100, Math.max(0, (Number(clip.vod_offset) - safeTimelineStart) / timelineWindow * 100))}%` }} onClick={() => setSelected(clip)} title={`${clip.title} · ${formatTimelineTime(clip.vod_offset)}`}><span>{Number(clip.view_count || 0).toLocaleString('ru-RU')}</span></button>)}</div><div className="vod-timeline-scale"><span>{formatTimelineTime(safeTimelineStart)}</span><span>{formatTimelineTime(timelineEnd)}</span></div></section>
     {filteredClips.length > 0 && <section className="clips-grid vod-clips-grid">{filteredClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} onOpen={setSelected} />)}</section>}
     {!filteredClips.length && <div className="clips-state vod-no-clips"><Clapperboard size={26} /><strong>{clips.length ? 'Под эти фильтры клипов нет' : 'Для этой записи клипов пока нет'}</strong><span>{clips.length ? 'Уменьшите минимум просмотров или отключите скрытие повторов.' : ''}</span></div>}
     {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
