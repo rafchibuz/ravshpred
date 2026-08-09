@@ -777,11 +777,11 @@ function LinkDirectory({ title, links, compact = false }) {
           const serviceIcon = serviceIconFor(item.url, item.icon || '');
           const iconDisabled = item.icon === 'builtin:none';
           return (
-            <a className={iconDisabled ? 'without-service-icon' : ''} key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
+            <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
               <span>{String(index + 1).padStart(2, '0')}</span>
-              {!iconDisabled && <span className="social-service-icon" aria-hidden="true">
-                {serviceIcon ? <img src={serviceIcon} alt="" /> : <Link2 size={18} />}
-              </span>}
+              <span className={`social-service-icon ${iconDisabled ? 'is-empty' : ''}`} aria-hidden="true">
+                {!iconDisabled && (serviceIcon ? <img src={serviceIcon} alt="" /> : <Link2 size={18} />)}
+              </span>
               <div><strong>{item.name}</strong><small>{item.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</small></div>
               <ArrowUpRight size={16} />
             </a>

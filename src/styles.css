@@ -354,7 +354,6 @@
 .social-directory-section > header h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -.055em; text-transform: uppercase; }
 .social-directory-section > header span { color: #777079; font: 9px monospace; letter-spacing: .2em; }
 .social-directory a { min-height: 92px; display: grid; grid-template-columns: 42px 42px minmax(0, 1fr) 24px; align-items: center; gap: 16px; color: inherit; border-bottom: 1px solid #343037; text-decoration: none; }
-.social-directory a.without-service-icon { grid-template-columns: 42px minmax(0, 1fr) 24px; }
 .social-directory a > span:first-child { color: #817a84; font: 9px monospace; }
 .social-service-icon { width: 38px; height: 38px; display: grid; place-items: center; color: #817a84; }
 .social-service-icon img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -417,7 +416,6 @@
 .link-directory-pair + .social-directory-section { margin-top: 14px; }
 .social-directory-section.is-compact > header h2 { font-size: clamp(23px, 2.7vw, 34px); }
 .social-directory-section.is-compact .social-directory a { grid-template-columns: 28px 34px minmax(0, 1fr) 20px; gap: 12px; }
-.social-directory-section.is-compact .social-directory a.without-service-icon { grid-template-columns: 28px minmax(0, 1fr) 20px; }
 .social-directory-section.is-compact .social-service-icon { width: 32px; height: 32px; }
 
 .submission-kind-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -631,7 +629,6 @@ body.modal-open { overflow: hidden; }
   .social-setting-row { grid-template-columns: 1fr; }
   .social-directory-section { padding: 20px 15px 0; }
   .social-directory a { min-height: 78px; grid-template-columns: 28px 32px minmax(0, 1fr) 20px; gap: 10px; }
-  .social-directory a.without-service-icon { grid-template-columns: 28px minmax(0, 1fr) 20px; }
   .social-service-icon { width: 30px; height: 30px; }
   .submission-kind-picker { grid-template-columns: 1fr; }
   .submission-kind-card { min-height: 190px; }
