@@ -70,6 +70,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/videos", s.feed)
 	mux.HandleFunc("GET /api/streamer", s.streamer)
 	mux.HandleFunc("GET /api/twitch/clips", s.twitchClips)
+	mux.HandleFunc("GET /api/twitch/videos", s.twitchVideos)
+	mux.HandleFunc("GET /api/twitch/videos/{id}", s.twitchVideo)
 	mux.HandleFunc("GET /api/news", s.news)
 	mux.HandleFunc("POST /api/news/{id}/comments", s.createNewsComment)
 	mux.HandleFunc("DELETE /api/news/comments/{id}", s.deleteNewsComment)
@@ -102,6 +104,62 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/owner/news", s.createNewsPost)
 	mux.HandleFunc("DELETE /api/owner/news/{id}", s.deleteNewsPost)
 	return s.middleware(mux)
+}
+
+func (s *Server) twitchVideos(w http.ResponseWriter, r *http.Request) {
+	if !s.twitch.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "twitch_not_configured", "Twitch API не настроен")
+		return
+	}
+	channel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
+	logins := []string{"ravshann", "ravshanbtw"}
+	if channel != "" && channel != "all" {
+		if channel != "ravshann" && channel != "ravshanbtw" {
+			writeError(w, http.StatusBadRequest, "invalid_channel", "Неизвестный Twitch-канал")
+			return
+		}
+		logins = []string{channel}
+	}
+	result := make([]twitch.Video, 0, 100)
+	for _, login := range logins {
+		items, err := s.twitch.VideosByLogin(r.Context(), login)
+		if err != nil {
+			s.logger.Warn("twitch videos unavailable", "login", login, "error", err)
+			continue
+		}
+		result = append(result, items...)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (s *Server) twitchVideo(w http.ResponseWriter, r *http.Request) {
+	if !s.twitch.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "twitch_not_configured", "Twitch API не настроен")
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "invalid_video", "Не указан VOD")
+		return
+	}
+	video, err := s.twitch.VideoByID(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "video_not_found", "Запись стрима не найдена")
+		return
+	}
+	duration, err := time.ParseDuration(video.Duration)
+	if err != nil || duration <= 0 {
+		duration = 24 * time.Hour
+	}
+	end := video.CreatedAt.Add(duration)
+	clips := s.loadTwitchClips(r.Context(), "vod="+id, []string{video.UserLogin}, &video.CreatedAt, &end, 10*time.Minute)
+	filtered := make([]twitch.Clip, 0, len(clips))
+	for _, clip := range clips {
+		if clip.VideoID == id {
+			filtered = append(filtered, clip)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"video": video, "clips": filtered}})
 }
 
 func (s *Server) twitchClips(w http.ResponseWriter, r *http.Request) {

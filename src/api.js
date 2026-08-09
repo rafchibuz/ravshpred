@@ -227,6 +227,14 @@ export function loadTwitchClips({ channel = 'all', period = 'week', from = '', t
   return request(`/twitch/clips?${params}`).then((payload) => payload.data || []);
 }
 
+export function loadTwitchVideos(channel = 'all') {
+  return request(`/twitch/videos?${new URLSearchParams({ channel })}`).then((payload) => payload.data || []);
+}
+
+export function loadTwitchVideo(videoId) {
+  return request(`/twitch/videos/${encodeURIComponent(videoId)}`).then((payload) => payload.data || null);
+}
+
 export function vote(videoId, value) {
   return request(`/videos/${videoId}/vote`, { method: 'PUT', body: { value } });
 }

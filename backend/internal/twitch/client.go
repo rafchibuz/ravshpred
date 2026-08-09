@@ -44,6 +44,24 @@ type Clip struct {
 	VODOffset       *int      `json:"vod_offset"`
 }
 
+type Video struct {
+	ID           string    `json:"id"`
+	StreamID     string    `json:"stream_id"`
+	UserID       string    `json:"user_id"`
+	UserLogin    string    `json:"user_login"`
+	UserName     string    `json:"user_name"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	CreatedAt    time.Time `json:"created_at"`
+	PublishedAt  time.Time `json:"published_at"`
+	URL          string    `json:"url"`
+	ThumbnailURL string    `json:"thumbnail_url"`
+	ViewCount    int       `json:"view_count"`
+	Language     string    `json:"language"`
+	Type         string    `json:"type"`
+	Duration     string    `json:"duration"`
+}
+
 type Client struct {
 	clientID     string
 	clientSecret string
@@ -298,4 +316,100 @@ func (c *Client) ClipsByLogin(ctx context.Context, login string, startedAt, ende
 		}
 	}
 	return result, nil
+}
+
+func (c *Client) VideosByLogin(ctx context.Context, login string) ([]Video, error) {
+	get, err := c.appHelix(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var users struct {
+		Data []User `json:"data"`
+	}
+	if err := get("https://api.twitch.tv/helix/users?login="+url.QueryEscape(login), &users); err != nil {
+		return nil, err
+	}
+	if len(users.Data) != 1 {
+		return nil, errors.New("twitch streamer not found")
+	}
+	query := url.Values{"user_id": {users.Data[0].ID}, "first": {"100"}, "type": {"archive"}}
+	result := make([]Video, 0, 100)
+	for page := 0; page < 5; page++ {
+		var response struct {
+			Data       []Video `json:"data"`
+			Pagination struct {
+				Cursor string `json:"cursor"`
+			} `json:"pagination"`
+		}
+		if err := get("https://api.twitch.tv/helix/videos?"+query.Encode(), &response); err != nil {
+			return nil, err
+		}
+		result = append(result, response.Data...)
+		if response.Pagination.Cursor == "" || len(response.Data) == 0 {
+			break
+		}
+		query.Set("after", response.Pagination.Cursor)
+	}
+	return result, nil
+}
+
+func (c *Client) VideoByID(ctx context.Context, id string) (Video, error) {
+	get, err := c.appHelix(ctx)
+	if err != nil {
+		return Video{}, err
+	}
+	var response struct {
+		Data []Video `json:"data"`
+	}
+	if err := get("https://api.twitch.tv/helix/videos?id="+url.QueryEscape(id), &response); err != nil {
+		return Video{}, err
+	}
+	if len(response.Data) != 1 {
+		return Video{}, errors.New("twitch video not found")
+	}
+	return response.Data[0], nil
+}
+
+func (c *Client) appHelix(ctx context.Context) (func(string, any) error, error) {
+	if !c.Configured() {
+		return nil, errors.New("twitch is not configured")
+	}
+	values := url.Values{"client_id": {c.clientID}, "client_secret": {c.clientSecret}, "grant_type": {"client_credentials"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/token", strings.NewReader(values.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("twitch app token: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("twitch app token returned %s", response.Status)
+	}
+	var token struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&token); err != nil {
+		return nil, err
+	}
+	get := func(endpoint string, target any) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		req.Header.Set("Client-Id", c.clientID)
+		response, err := c.http.Do(req)
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return fmt.Errorf("twitch helix returned %s", response.Status)
+		}
+		return json.NewDecoder(response.Body).Decode(target)
+	}
+	return get, nil
 }

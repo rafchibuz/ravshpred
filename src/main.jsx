@@ -35,6 +35,7 @@ import {
   Trash2,
   Upload,
   UserRound,
+  Video as VideoIcon,
   X,
 } from 'lucide-react';
 import {
@@ -429,6 +430,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
     { key: 'home', label: 'Главная', icon: Home },
     { key: 'feed', label: 'Предложка', icon: Play },
     { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
+    { key: 'vods', label: 'Записи стримов', icon: VideoIcon },
     { key: 'news', label: 'Новости', icon: Newspaper },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
     ...(can(role, 'view_profile')
@@ -450,7 +452,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
   const renderNavButton = ({ key, label, icon: Icon, count }) => (
     <button
       key={key}
-      className={`${route === key ? 'active' : ''} ${primaryKeys.has(key) ? 'mobile-primary' : 'mobile-secondary'}`}
+      className={`${route === key || (key === 'vods' && route.startsWith('vod/')) ? 'active' : ''} ${primaryKeys.has(key) ? 'mobile-primary' : 'mobile-secondary'}`}
       onClick={() => go(key)}
       aria-current={route === key ? 'page' : undefined}
       title={collapsed ? label : undefined}
@@ -823,6 +825,7 @@ function StreamerHome({ streamer, navigate }) {
       </div>}
       </section>
       <StreamClipsStrip streamer={streamer} navigate={navigate} />
+      <HomeVodsStrip navigate={navigate} />
       <LinkDirectory title="Основные соцсети" links={primaryLinks} />
       <div className="link-directory-pair">
         <LinkDirectory title="Больше контента" links={moreLinks} compact />
@@ -1051,6 +1054,174 @@ function TwitchClipsView() {
       {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
     </main>
   );
+}
+
+function twitchDurationSeconds(value = '') {
+  const match = String(value).match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!match) return 0;
+  return Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0);
+}
+
+function formatVodDuration(value) {
+  const seconds = twitchDurationSeconds(value);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours} ч ${minutes} мин` : `${minutes} мин`;
+}
+
+function twitchVideoThumbnail(url) {
+  return String(url || '').replace('%{width}', '640').replace('%{height}', '360');
+}
+
+function TwitchVodCard({ video, navigate, compact = false }) {
+  return <button className={`vod-card ${compact ? 'is-compact' : ''}`} onClick={() => navigate(`vod/${video.id}`)}>
+    <div className="vod-thumb"><img src={twitchVideoThumbnail(video.thumbnail_url)} alt="" loading="lazy" /><span>{formatVodDuration(video.duration)}</span><i><Play size={22} fill="currentColor" /></i></div>
+    <div><h2>{video.title}</h2><strong>{video.user_name || video.user_login}</strong><p><span><Eye size={13} /> {Number(video.view_count || 0).toLocaleString('ru-RU')}</span><time>{new Date(video.created_at).toLocaleDateString('ru-RU')}</time></p></div>
+  </button>;
+}
+
+function HomeVodsStrip({ navigate }) {
+  const [channel, setChannel] = useState('all');
+  const [sort, setSort] = useState('new');
+  const [direction, setDirection] = useState('desc');
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [scroll, setScroll] = useState({ left: false, right: false });
+  const rowRef = useRef(null);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    api.loadTwitchVideos(channel)
+      .then((items) => { if (active) setVideos(items); })
+      .catch((requestError) => { if (active) setError(requestError.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [channel]);
+  const visibleVideos = useMemo(() => {
+    const multiplier = direction === 'asc' ? 1 : -1;
+    return [...videos].sort((a, b) => multiplier * (sort === 'views'
+      ? Number(a.view_count) - Number(b.view_count)
+      : new Date(a.created_at) - new Date(b.created_at)));
+  }, [videos, sort, direction]);
+  const updateScroll = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const maximum = Math.max(0, row.scrollWidth - row.clientWidth);
+    setScroll({ left: row.scrollLeft > 4, right: row.scrollLeft < maximum - 4 });
+  }, []);
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return undefined;
+    updateScroll();
+    row.addEventListener('scroll', updateScroll, { passive: true });
+    const observer = new ResizeObserver(updateScroll);
+    observer.observe(row);
+    return () => { row.removeEventListener('scroll', updateScroll); observer.disconnect(); };
+  }, [loading, visibleVideos.length, updateScroll]);
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    row.scrollLeft = 0;
+    updateScroll();
+  }, [channel, updateScroll]);
+  const scrollVods = (step) => rowRef.current?.scrollBy({ left: step * Math.max(300, rowRef.current.clientWidth * .8), behavior: 'smooth' });
+  return <section className="home-clips-section home-vods-section">
+    <header><div><span className="panel-kicker">TWITCH VOD</span><h2>Записи стримов</h2><p>Последние эфиры RavshanN и ravshanbtw</p></div><button className="ghost-btn" onClick={() => navigate('vods')}>Все записи <ArrowUpRight size={14} /></button></header>
+    <div className="home-clips-controls">
+      <div className="home-channel-switch">{[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
+      <div className="home-clips-sort"><select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Сортировка записей на главной"><option value="new">По новизне</option><option value="views">По просмотрам</option></select><button type="button" onClick={() => setDirection((value) => value === 'desc' ? 'asc' : 'desc')} aria-label={direction === 'desc' ? 'По убыванию' : 'По возрастанию'}>{direction === 'desc' ? <ArrowDown size={15} /> : <ArrowUp size={15} />}</button></div>
+    </div>
+    {loading && <div className="home-clips-loading"><span className="clips-loader" /> Загружаем записи…</div>}
+    {!loading && error && <div className="home-clips-empty">Не удалось получить записи Twitch.</div>}
+    {!loading && !error && !visibleVideos.length && <div className="home-clips-empty">Для выбранного канала записей пока нет.</div>}
+    {!loading && !error && visibleVideos.length > 0 && <div className="home-clips-carousel">{scroll.left && <button type="button" className="home-clips-arrow is-left" onClick={() => scrollVods(-1)} aria-label="Предыдущие записи"><ChevronLeft size={23} /></button>}<div className="home-clips-row home-vods-row" ref={rowRef}>{visibleVideos.map((video) => <TwitchVodCard key={video.id} video={video} navigate={navigate} compact />)}</div>{scroll.right && <button type="button" className="home-clips-arrow is-right" onClick={() => scrollVods(1)} aria-label="Следующие записи"><ChevronRight size={23} /></button>}</div>}
+  </section>;
+}
+
+function TwitchVodsView({ navigate }) {
+  const [channel, setChannel] = useState('all');
+  const [sort, setSort] = useState('new');
+  const [direction, setDirection] = useState('desc');
+  const [period, setPeriod] = useState('all');
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    api.loadTwitchVideos(channel)
+      .then((items) => { if (active) setVideos(items); })
+      .catch((requestError) => { if (active) setError(requestError.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [channel]);
+  const visibleVideos = useMemo(() => {
+    const now = Date.now();
+    const periodMilliseconds = period === 'month' ? 31 * 24 * 60 * 60 * 1000 : period === 'week' ? 7 * 24 * 60 * 60 * 1000 : 0;
+    const items = videos.filter((video) => !periodMilliseconds || now - new Date(video.created_at).getTime() <= periodMilliseconds);
+    const multiplier = direction === 'asc' ? 1 : -1;
+    return [...items].sort((a, b) => multiplier * (sort === 'views'
+      ? Number(a.view_count) - Number(b.view_count)
+      : new Date(a.created_at) - new Date(b.created_at)));
+  }, [videos, sort, direction, period]);
+  return <main className="main-content vods-page">
+    <section className="page-heading clips-heading"><div><div className="eyebrow"><VideoIcon size={13} /> TWITCH VOD</div><h1>Записи стримов Равшана</h1><p>Прошедшие эфиры двух каналов — откройте запись и посмотрите клипы на временной линии.</p></div><div className="clips-heading-total"><strong>{visibleVideos.length}</strong><span>записей</span></div></section>
+    <section className="vods-filters">
+      <div className="clips-filter-group"><span>Канал</span>{[['all', 'Все'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
+      <div className="clips-filter-group"><span>Период</span>{[['all', 'Все'], ['month', 'Месяц'], ['week', 'Неделя']].map(([value, label]) => <button key={value} className={period === value ? 'selected' : ''} onClick={() => setPeriod(value)}>{label}</button>)}</div>
+      <div className="clips-sort"><label>Сортировка<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="new">По новизне</option><option value="views">По просмотрам</option></select></label><button onClick={() => setDirection((value) => value === 'desc' ? 'asc' : 'desc')} aria-label="Изменить направление сортировки">{direction === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button></div>
+    </section>
+    {loading && <div className="clips-state"><span className="clips-loader" />Загружаем записи Twitch…</div>}
+    {!loading && error && <div className="clips-state error"><VideoIcon size={28} /><strong>Не удалось получить записи</strong><span>{error}</span></div>}
+    {!loading && !error && !visibleVideos.length && <div className="clips-state"><VideoIcon size={28} /><strong>Записей за этот период нет</strong></div>}
+    {!loading && !error && <section className="vods-grid">{visibleVideos.map((video) => <TwitchVodCard key={video.id} video={video} navigate={navigate} />)}</section>}
+  </main>;
+}
+
+function TwitchVodView({ videoId, navigate }) {
+  const [data, setData] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [clipSort, setClipSort] = useState('popular');
+  const [clipDirection, setClipDirection] = useState('desc');
+  const [minimumViews, setMinimumViews] = useState(0);
+  const [hideDuplicates, setHideDuplicates] = useState(true);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api.loadTwitchVideo(videoId)
+      .then((result) => { if (active) setData(result); })
+      .catch((requestError) => { if (active) setError(requestError.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [videoId]);
+  const filteredClips = useMemo(() => {
+    let items = (data?.clips || []).filter((clip) => Number(clip.view_count || 0) >= minimumViews);
+    if (hideDuplicates) items = deduplicateTwitchClips(items);
+    const multiplier = clipDirection === 'asc' ? 1 : -1;
+    return [...items].sort((a, b) => multiplier * (clipSort === 'new'
+      ? new Date(a.created_at) - new Date(b.created_at)
+      : Number(a.view_count) - Number(b.view_count)));
+  }, [data, clipSort, clipDirection, minimumViews, hideDuplicates]);
+  if (loading) return <main className="main-content vod-detail-page"><div className="clips-state"><span className="clips-loader" />Загружаем запись…</div></main>;
+  if (error || !data?.video) return <main className="main-content vod-detail-page"><button className="ghost-btn" onClick={() => navigate('vods')}>← К записям</button><div className="clips-state error"><VideoIcon size={28} /><strong>Запись не найдена</strong><span>{error}</span></div></main>;
+  const { video } = data;
+  const clips = data.clips || [];
+  const duration = Math.max(1, twitchDurationSeconds(video.duration));
+  const parent = window.location.hostname || 'localhost';
+  return <main className="main-content vod-detail-page">
+    <div className="vod-detail-actions"><button className="ghost-btn" onClick={() => navigate('vods')}>← Все записи</button><a className="stream-open-link" href={video.url} target="_blank" rel="noreferrer">Открыть на Twitch <ExternalLink size={14} /></a></div>
+    <section className="vod-player"><iframe title={video.title} src={`https://player.twitch.tv/?video=v${encodeURIComponent(video.id)}&parent=${encodeURIComponent(parent)}&autoplay=false`} allowFullScreen /></section>
+    <section className="vod-info"><div><span className="panel-kicker">{video.user_name || video.user_login}</span><h1>{video.title}</h1><p>{new Date(video.created_at).toLocaleString('ru-RU')} · {formatVodDuration(video.duration)}</p></div><div><strong><Eye size={15} /> {Number(video.view_count || 0).toLocaleString('ru-RU')}</strong><span>{clips.length} клипов</span></div></section>
+    <section className="vod-timeline-section"><header><div><span className="panel-kicker">КЛИПЫ ЭФИРА</span><h2>Временная линия стрима</h2></div><span>{filteredClips.length} из {clips.length} моментов</span></header><div className="vod-clip-filters"><label className="clips-min-views">Минимум просмотров<input type="number" min="0" step="10" value={minimumViews} onChange={(event) => setMinimumViews(Math.max(0, Number(event.target.value) || 0))} /></label><label className="clips-deduplicate"><input type="checkbox" checked={hideDuplicates} onChange={(event) => setHideDuplicates(event.target.checked)} /><span>Скрывать клипы с одного момента</span></label><div className="clips-sort"><label>Сортировка<select value={clipSort} onChange={(event) => setClipSort(event.target.value)}><option value="popular">По популярности</option><option value="new">По дате добавления</option></select></label><button onClick={() => setClipDirection((value) => value === 'desc' ? 'asc' : 'desc')} aria-label="Изменить направление сортировки">{clipDirection === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button></div></div><div className="vod-timeline"><div className="vod-timeline-track" />{filteredClips.filter((clip) => clip.vod_offset != null).map((clip) => <button key={clip.id} style={{ left: `${Math.min(100, Math.max(0, Number(clip.vod_offset) / duration * 100))}%` }} onClick={() => setSelected(clip)} title={`${clip.title} · ${Math.floor(Number(clip.vod_offset) / 60)} мин`}><span>{Number(clip.view_count || 0).toLocaleString('ru-RU')}</span></button>)}</div><div className="vod-timeline-scale"><span>0:00</span><span>{formatVodDuration(video.duration)}</span></div></section>
+    {filteredClips.length > 0 && <section className="clips-grid vod-clips-grid">{filteredClips.map((clip) => <TwitchClipCard key={clip.id} clip={clip} onOpen={setSelected} />)}</section>}
+    {!filteredClips.length && <div className="clips-state vod-no-clips"><Clapperboard size={26} /><strong>{clips.length ? 'Под эти фильтры клипов нет' : 'Для этой записи клипов пока нет'}</strong><span>{clips.length ? 'Уменьшите минимум просмотров или отключите скрытие повторов.' : ''}</span></div>}
+    {selected && <TwitchClipModal clip={selected} onClose={() => setSelected(null)} />}
+  </main>;
 }
 
 function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLogin }) {
@@ -2636,6 +2807,8 @@ function App() {
   let page;
   if (route === 'home') page = <StreamerHome streamer={state.streamer} navigate={navigate} />;
   else if (route === 'clips') page = <TwitchClipsView />;
+  else if (route === 'vods') page = <TwitchVodsView navigate={navigate} />;
+  else if (route.startsWith('vod/')) page = <TwitchVodView videoId={route.slice(4)} navigate={navigate} />;
   else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
