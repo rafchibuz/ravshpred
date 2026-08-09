@@ -728,6 +728,7 @@ const BUILTIN_LINK_ICONS = {
 
 const LINK_ICON_OPTIONS = [
   ['auto', 'Автоматически'],
+  ['none', 'Без иконки'],
   ['twitch', 'Twitch'],
   ['telegram', 'Telegram'],
   ['instagram', 'Instagram'],
@@ -767,18 +768,20 @@ function serviceIconFor(url, selectedIcon = '') {
 
 function LinkDirectory({ title, links, compact = false }) {
   const items = links || [];
+  const hasInstagram = items.some((item) => /(^|\.)instagram\.com$/i.test((() => { try { return new URL(item.url).hostname; } catch { return ''; } })()));
   return (
     <section className={`stream-socials social-directory-section ${compact ? 'is-compact' : ''}`}>
       <header><h2>{title}</h2><span>{String(items.length).padStart(2, '0')}</span></header>
       <div className="social-directory">
         {items.map((item, index) => {
           const serviceIcon = serviceIconFor(item.url, item.icon || '');
+          const iconDisabled = item.icon === 'builtin:none';
           return (
-            <a key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
+            <a className={iconDisabled ? 'without-service-icon' : ''} key={`${item.name}-${item.url}`} href={item.url} target="_blank" rel="noreferrer">
               <span>{String(index + 1).padStart(2, '0')}</span>
-              <span className="social-service-icon" aria-hidden="true">
+              {!iconDisabled && <span className="social-service-icon" aria-hidden="true">
                 {serviceIcon ? <img src={serviceIcon} alt="" /> : <Link2 size={18} />}
-              </span>
+              </span>}
               <div><strong>{item.name}</strong><small>{item.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</small></div>
               <ArrowUpRight size={16} />
             </a>
@@ -786,6 +789,7 @@ function LinkDirectory({ title, links, compact = false }) {
         })}
         {!items.length && <div className="social-directory-empty">Ссылки появятся здесь после добавления в настройках</div>}
       </div>
+      {hasInstagram && <p className="instagram-disclaimer">* Instagram - продукт компании Meta Platforms Inc., деятельность которой по реализации социальных сетей Facebook и Instagram запрещена на территории Российской Федерации.</p>}
     </section>
   );
 }
@@ -2285,8 +2289,9 @@ function SiteLinksModal({ links, onClose, onSave, notify }) {
         {sectionItems.map(({ item, index }, position) => {
           const iconValue = item.icon?.startsWith('data:image/') ? 'custom' : (item.icon?.replace('builtin:', '') || 'auto');
           const preview = serviceIconFor(item.url, item.icon || '');
+          const iconDisabled = item.icon === 'builtin:none';
           return <article className="site-link-card" key={index}>
-            <div className="site-link-card-preview">{preview ? <img src={preview} alt="" /> : <Link2 size={20} />}</div>
+            <div className={`site-link-card-preview ${iconDisabled ? 'is-empty' : ''}`}>{iconDisabled ? <span>—</span> : preview ? <img src={preview} alt="" /> : <Link2 size={20} />}</div>
             <div className="site-link-fields">
               <label>Название<input value={item.name} maxLength={40} placeholder="Название плашки" onChange={(event) => patchItem(index, { name: event.target.value })} /></label>
               <label>Ссылка<input type="url" value={item.url} placeholder="https://..." onChange={(event) => patchItem(index, { url: event.target.value })} /></label>

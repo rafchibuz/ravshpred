@@ -354,6 +354,7 @@
 .social-directory-section > header h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -.055em; text-transform: uppercase; }
 .social-directory-section > header span { color: #777079; font: 9px monospace; letter-spacing: .2em; }
 .social-directory a { min-height: 92px; display: grid; grid-template-columns: 42px 42px minmax(0, 1fr) 24px; align-items: center; gap: 16px; color: inherit; border-bottom: 1px solid #343037; text-decoration: none; }
+.social-directory a.without-service-icon { grid-template-columns: 42px minmax(0, 1fr) 24px; }
 .social-directory a > span:first-child { color: #817a84; font: 9px monospace; }
 .social-service-icon { width: 38px; height: 38px; display: grid; place-items: center; color: #817a84; }
 .social-service-icon img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -364,6 +365,7 @@
 .social-directory a:hover strong, .social-directory a:hover > svg { color: #c995ff; }
 .social-directory a:hover > svg { transform: translate(3px, -3px); }
 .social-directory-empty { min-height: 72px; display: flex; align-items: center; color: #756e78; font-size: 10px; }
+.instagram-disclaimer { margin: 14px 0 0; color: #777079; font-size: 9px; line-height: 1.55; }
 .social-settings-list { display: grid; gap: 9px; margin-top: 8px; }
 .social-setting-row { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(240px, 1.3fr) minmax(150px, .65fr); gap: 12px; align-items: end; padding: 12px; border: 1px solid #342e3a; border-radius: 8px; }
 .social-setting-row label { min-width: 0; margin: 0; }
@@ -392,6 +394,7 @@
 .site-links-editor { overflow-y: auto; display: grid; align-content: start; gap: 10px; padding: 16px 26px; }
 .site-link-card { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: end; gap: 13px; padding: 13px; border: 1px solid #38313f; border-radius: 10px; background: #1a171e; }
 .site-link-card-preview { width: 48px; height: 48px; display: grid; place-items: center; align-self: center; overflow: hidden; border: 1px solid #413849; border-radius: 10px; color: #877d8e; background: #111015; }
+.site-link-card-preview.is-empty { color: #625b68; font-size: 14px; }
 .site-link-card-preview img { max-width: 34px; max-height: 34px; object-fit: contain; }
 .site-link-fields { min-width: 0; display: grid; grid-template-columns: minmax(140px,.72fr) minmax(250px,1.4fr) minmax(155px,.7fr) 132px; gap: 9px; }
 .site-link-fields label { min-width: 0; display: grid; gap: 6px; color: #8f8795; font-size: 8px; }
@@ -414,6 +417,7 @@
 .link-directory-pair + .social-directory-section { margin-top: 14px; }
 .social-directory-section.is-compact > header h2 { font-size: clamp(23px, 2.7vw, 34px); }
 .social-directory-section.is-compact .social-directory a { grid-template-columns: 28px 34px minmax(0, 1fr) 20px; gap: 12px; }
+.social-directory-section.is-compact .social-directory a.without-service-icon { grid-template-columns: 28px minmax(0, 1fr) 20px; }
 .social-directory-section.is-compact .social-service-icon { width: 32px; height: 32px; }
 
 .submission-kind-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -627,6 +631,7 @@ body.modal-open { overflow: hidden; }
   .social-setting-row { grid-template-columns: 1fr; }
   .social-directory-section { padding: 20px 15px 0; }
   .social-directory a { min-height: 78px; grid-template-columns: 28px 32px minmax(0, 1fr) 20px; gap: 10px; }
+  .social-directory a.without-service-icon { grid-template-columns: 28px minmax(0, 1fr) 20px; }
   .social-service-icon { width: 30px; height: 30px; }
   .submission-kind-picker { grid-template-columns: 1fr; }
   .submission-kind-card { min-height: 190px; }
