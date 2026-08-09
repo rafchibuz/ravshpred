@@ -813,38 +813,111 @@ func (s *Store) ListModerators(ctx context.Context) ([]domain.User, error) {
 	return result, rows.Err()
 }
 
-func (s *Store) ListUsersStats(ctx context.Context, limit int) ([]domain.UserStats, error) {
+func (s *Store) ListUsersStats(ctx context.Context, params store.UserStatsParams) ([]domain.UserStats, int, error) {
+	conditions := []string{"u.deleted_at IS NULL"}
+	args := make([]any, 0, 4)
+	if params.UserID != "" {
+		args = append(args, params.UserID)
+		conditions = append(conditions, fmt.Sprintf("u.id::text=$%d", len(args)))
+	}
+	if query := strings.TrimSpace(params.Query); query != "" {
+		args = append(args, "%"+query+"%")
+		conditions = append(conditions, fmt.Sprintf("(u.display_name ILIKE $%d OR COALESCE(u.twitch_login,'') ILIKE $%d)", len(args), len(args)))
+	}
+	if params.Role == "user" || params.Role == "moderator" || params.Role == "owner" {
+		args = append(args, params.Role)
+		conditions = append(conditions, fmt.Sprintf("u.role::text=$%d", len(args)))
+	}
+	order := "u.created_at DESC"
+	switch params.Sort {
+	case "activity":
+		order = "actions DESC, total DESC, u.created_at DESC"
+	case "submissions":
+		order = "total DESC, u.created_at DESC"
+	case "last_login":
+		order = "u.last_login_at DESC NULLS LAST"
+	case "name":
+		order = "lower(u.display_name), lower(COALESCE(u.twitch_login,''))"
+	}
+	args = append(args, clampLimit(params.Limit), max(0, params.Offset))
+	limitPosition, offsetPosition := len(args)-1, len(args)
 	rows, err := s.pool.Query(ctx, `
 		SELECT u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),u.display_name,
 			u.avatar_url,u.role::text,u.created_at,u.last_login_at,
-			count(s.id) FILTER (WHERE s.deleted_at IS NULL),
-			count(s.id) FILTER (WHERE s.status='pending' AND s.deleted_at IS NULL),
-			count(s.id) FILTER (WHERE s.status='approved' AND s.deleted_at IS NULL),
-			count(s.id) FILTER (WHERE s.status='rejected' AND s.deleted_at IS NULL),
-			count(sm.submission_id) FILTER (WHERE s.deleted_at IS NULL),
-			count(s.id) FILTER (WHERE s.deleted_at IS NOT NULL),
-			(SELECT count(*) FROM news_comments nc WHERE nc.author_id=u.id)
-		FROM users u
-		LEFT JOIN submissions s ON s.author_id=u.id
-		LEFT JOIN streamer_marks sm ON sm.submission_id=s.id
-		WHERE u.deleted_at IS NULL
-		GROUP BY u.id
-		ORDER BY u.created_at DESC LIMIT $1`, clampLimit(limit))
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL) AS total,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL AND s.content_kind='video') AS videos,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL AND s.content_kind='stream_idea') AS ideas,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL AND s.status='pending') AS pending,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL AND s.status='approved') AS approved,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL AND s.status='rejected') AS rejected,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL AND s.status='changes_requested') AS changes_requested,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NULL AND s.status='hidden') AS hidden,
+			(SELECT count(*) FROM submissions s JOIN streamer_marks sm ON sm.submission_id=s.id WHERE s.author_id=u.id AND s.deleted_at IS NULL) AS watched,
+			(SELECT count(*) FROM submissions s WHERE s.author_id=u.id AND s.deleted_at IS NOT NULL) AS deleted,
+			(SELECT count(*) FROM news_comments nc WHERE nc.author_id=u.id) AS comments,
+			(SELECT count(*) FROM votes v WHERE v.user_id=u.id) AS votes,
+			(SELECT count(*) FROM audit_log a WHERE a.actor_id=u.id) AS actions,
+			count(*) OVER() AS result_count
+		FROM users u WHERE `+strings.Join(conditions, " AND ")+`
+		ORDER BY `+order+fmt.Sprintf(" LIMIT $%d OFFSET $%d", limitPosition, offsetPosition), args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	result := make([]domain.UserStats, 0)
+	total := 0
 	for rows.Next() {
 		var item domain.UserStats
 		if err := rows.Scan(&item.User.ID, &item.User.TwitchID, &item.User.Login, &item.User.Display,
 			&item.User.AvatarURL, &item.User.Role, &item.User.CreatedAt, &item.LastLogin,
-			&item.Total, &item.Pending, &item.Approved, &item.Rejected, &item.Watched, &item.Deleted, &item.Comments); err != nil {
-			return nil, err
+			&item.Total, &item.Videos, &item.Ideas, &item.Pending, &item.Approved, &item.Rejected,
+			&item.ChangesRequested, &item.Hidden, &item.Watched, &item.Deleted, &item.Comments,
+			&item.Votes, &item.Actions, &total); err != nil {
+			return nil, 0, err
 		}
 		result = append(result, item)
 	}
-	return result, rows.Err()
+	return result, total, rows.Err()
+}
+
+func (s *Store) UserDetail(ctx context.Context, userID string) (domain.UserDetail, error) {
+	items, _, err := s.ListUsersStats(ctx, store.UserStatsParams{UserID: userID, Limit: 1})
+	if err != nil {
+		return domain.UserDetail{}, err
+	}
+	var stats *domain.UserStats
+	if len(items) == 1 {
+		stats = &items[0]
+	}
+	if stats == nil {
+		return domain.UserDetail{}, store.ErrNotFound
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT s.id::text,s.title,s.content_kind,s.status::text,s.deleted_at IS NOT NULL,
+			EXISTS(SELECT 1 FROM streamer_marks sm WHERE sm.submission_id=s.id),s.created_at
+		FROM submissions s WHERE s.author_id::text=$1 ORDER BY s.created_at DESC LIMIT 100`, userID)
+	if err != nil {
+		return domain.UserDetail{}, err
+	}
+	submissions := make([]domain.UserSubmissionActivity, 0)
+	for rows.Next() {
+		var item domain.UserSubmissionActivity
+		if err := rows.Scan(&item.ID, &item.Title, &item.ContentKind, &item.Status, &item.Deleted, &item.Watched, &item.CreatedAt); err != nil {
+			rows.Close()
+			return domain.UserDetail{}, err
+		}
+		submissions = append(submissions, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return domain.UserDetail{}, err
+	}
+	rows.Close()
+	audit, _, err := s.ListAudit(ctx, store.AuditParams{UserID: userID, Limit: 100})
+	if err != nil {
+		return domain.UserDetail{}, err
+	}
+	return domain.UserDetail{Stats: *stats, Submissions: submissions, Audit: audit}, nil
 }
 
 func (s *Store) ListNotifications(ctx context.Context, userID string, limit int) ([]domain.Notification, error) {
@@ -1042,27 +1115,57 @@ func (s *Store) MarkAllNotificationsRead(ctx context.Context, userID string) err
 	return err
 }
 
-func (s *Store) ListAudit(ctx context.Context, limit int) ([]domain.AuditEntry, error) {
+func (s *Store) ListAudit(ctx context.Context, params store.AuditParams) ([]domain.AuditEntry, int, error) {
+	conditions := []string{"true"}
+	args := make([]any, 0, 8)
+	if value := strings.TrimSpace(params.Query); value != "" {
+		args = append(args, "%"+value+"%")
+		conditions = append(conditions, fmt.Sprintf("(a.action ILIKE $%d OR a.target_id ILIKE $%d OR COALESCE(u.display_name,'') ILIKE $%d OR COALESCE(u.twitch_login,'') ILIKE $%d)", len(args), len(args), len(args), len(args)))
+	}
+	if params.UserID != "" {
+		args = append(args, params.UserID)
+		conditions = append(conditions, fmt.Sprintf("a.actor_id::text=$%d", len(args)))
+	}
+	if params.Action != "" {
+		args = append(args, params.Action)
+		conditions = append(conditions, fmt.Sprintf("a.action=$%d", len(args)))
+	}
+	if params.TargetType != "" {
+		args = append(args, params.TargetType)
+		conditions = append(conditions, fmt.Sprintf("a.target_type=$%d", len(args)))
+	}
+	if params.From != nil {
+		args = append(args, *params.From)
+		conditions = append(conditions, fmt.Sprintf("a.created_at >= $%d", len(args)))
+	}
+	if params.To != nil {
+		args = append(args, *params.To)
+		conditions = append(conditions, fmt.Sprintf("a.created_at <= $%d", len(args)))
+	}
+	args = append(args, clampLimit(params.Limit), max(0, params.Offset))
+	limitPosition, offsetPosition := len(args)-1, len(args)
 	rows, err := s.pool.Query(ctx, `
 		SELECT a.id,a.action,a.target_type,a.target_id,a.metadata,a.created_at,
 			COALESCE(u.id::text,''),COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),
 			COALESCE(u.display_name,''),COALESCE(u.avatar_url,''),COALESCE(u.role::text,'user'),
-			COALESCE(u.created_at,a.created_at)
+			COALESCE(u.created_at,a.created_at),count(*) OVER()
 		FROM audit_log a
 		LEFT JOIN users u ON u.id=a.actor_id
-		ORDER BY a.created_at DESC LIMIT $1`, clampLimit(limit))
+		WHERE `+strings.Join(conditions, " AND ")+`
+		ORDER BY a.created_at DESC`+fmt.Sprintf(" LIMIT $%d OFFSET $%d", limitPosition, offsetPosition), args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var result []domain.AuditEntry
+	total := 0
 	for rows.Next() {
 		var item domain.AuditEntry
 		var actor domain.User
 		var actorID string
 		if err := rows.Scan(&item.ID, &item.Action, &item.TargetType, &item.TargetID, &item.Metadata, &item.CreatedAt,
-			&actorID, &actor.TwitchID, &actor.Login, &actor.Display, &actor.AvatarURL, &actor.Role, &actor.CreatedAt); err != nil {
-			return nil, err
+			&actorID, &actor.TwitchID, &actor.Login, &actor.Display, &actor.AvatarURL, &actor.Role, &actor.CreatedAt, &total); err != nil {
+			return nil, 0, err
 		}
 		if actorID != "" {
 			actor.ID = actorID
@@ -1070,7 +1173,15 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]domain.AuditEntry, 
 		}
 		result = append(result, item)
 	}
-	return result, rows.Err()
+	return result, total, rows.Err()
+}
+
+func (s *Store) WriteAudit(ctx context.Context, actorID, action, targetType, targetID string, metadata map[string]any) error {
+	encoded, _ := json.Marshal(metadata)
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata)
+		VALUES(NULLIF($1,'')::uuid,$2,$3,$4,$5::jsonb)`, actorID, action, targetType, targetID, string(encoded))
+	return err
 }
 
 func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) {

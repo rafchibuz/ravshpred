@@ -70,6 +70,16 @@ const ROLE_LABELS = {
   moderator: 'Модератор',
   owner: 'Основатель',
 };
+const AUDIT_LABELS = {
+  login: 'Вход', logout: 'Выход', submit: 'Отправка предложения', vote: 'Голосование',
+  approve: 'Одобрение', reject: 'Отказ', request_changes: 'Запрос исправлений', restore: 'Восстановление',
+  watched_on: 'Отметка отсмотрено', watched_off: 'Снятие отметки', category_change: 'Смена категории',
+  content_update: 'Редактирование предложения', movie_metadata_update: 'Данные фильма', delete: 'Удаление',
+  create: 'Создание', comment: 'Комментарий', delete_comment: 'Удаление комментария',
+  assign_moderator: 'Назначение модератора', remove_moderator: 'Удаление модератора',
+  settings_update: 'Изменение настроек', notification_read: 'Прочитано уведомление',
+  notifications_read_all: 'Прочитаны уведомления',
+};
 
 function playNewSubmissionSound(audioContextRef) {
   const context = audioContextRef.current;
@@ -2274,6 +2284,61 @@ function SiteLinksModal({ links, onClose, onSave, notify }) {
   </div>;
 }
 
+function OwnerUserDetailModal({ userId, onClose, notify }) {
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    api.loadOwnerUser(userId).then((value) => { if (active) setDetail(value); }).catch((requestError) => { if (active) setError(requestError.message); });
+    return () => { active = false; };
+  }, [userId]);
+  useEffect(() => {
+    const close = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [onClose]);
+  const stats = detail?.stats;
+  return <div className="owner-detail-backdrop" onMouseDown={onClose}><section className="owner-user-detail" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><header>{stats ? <div className="owner-user-identity"><Avatar src={stats.user.avatar_url} name={stats.user.display_name || stats.user.login} /><div><span className="panel-kicker">{ROLE_LABELS[stats.user.role] || stats.user.role}</span><h2>{stats.user.display_name || stats.user.login}</h2><p>@{stats.user.login} · зарегистрирован {new Date(stats.user.created_at).toLocaleDateString('ru-RU')}</p></div></div> : <h2>Карточка пользователя</h2>}<button onClick={onClose} aria-label="Закрыть"><X size={20} /></button></header>{!detail && !error && <div className="owner-detail-loading"><span className="clips-loader" /> Загружаем историю…</div>}{error && <div className="owner-detail-loading">{error}</div>}{detail && <><div className="owner-user-stats">{[['Всего', stats.total], ['Видео', stats.videos], ['Идеи', stats.ideas], ['Одобрено', stats.approved], ['Отказано', stats.rejected], ['Отсмотрено', stats.watched], ['Удалено', stats.deleted], ['Голоса', stats.votes], ['Действия', stats.actions]].map(([label, value]) => <div key={label}><b>{value}</b><span>{label}</span></div>)}</div><div className="owner-detail-columns"><section><h3>Предложения <span>{detail.submissions.length}</span></h3><div className="owner-activity-list">{detail.submissions.map((item) => <article key={item.id}><div><b>{item.title}</b><span>{item.content_kind === 'stream_idea' ? 'Идея для стрима' : 'Видео'} · {new Date(item.created_at).toLocaleString('ru-RU')}</span></div><em className={item.deleted ? 'deleted' : item.status}>{item.deleted ? 'Удалено' : STATUS_LABELS[item.status]}</em></article>)}{!detail.submissions.length && <p className="owner-empty-row">Предложений пока нет</p>}</div></section><section><h3>Последние действия <span>{detail.audit.length}</span></h3><div className="owner-activity-list">{detail.audit.map((entry) => <article key={entry.id}><div><b>{AUDIT_LABELS[entry.action] || entry.action}</b><span>{entry.target_type} #{entry.target_id} · {new Date(entry.created_at).toLocaleString('ru-RU')}</span></div></article>)}{!detail.audit.length && <p className="owner-empty-row">Действий пока нет</p>}</div></section></div></>}</section></div>;
+}
+
+function OwnerUsersPanel({ notify }) {
+  const [filters, setFilters] = useState({ q: '', role: '', sort: 'activity' });
+  const [offset, setOffset] = useState(0);
+  const [result, setResult] = useState({ items: [], total: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState('');
+  const limit = 25;
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    const timer = window.setTimeout(() => api.loadOwnerUsers({ ...filters, limit, offset }).then((value) => { if (active) setResult(value); }).catch((requestError) => { if (active) setError(requestError.message); }).finally(() => { if (active) setLoading(false); }), 220);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [filters, offset]);
+  const update = (key, value) => { setFilters((current) => ({ ...current, [key]: value })); setOffset(0); };
+  return <section className="panel owner-panel users-panel"><div className="panel-head"><div><h2>Пользователи</h2><p>Статистика предложений и активности каждого аккаунта</p></div><span className="panel-kicker">{result.total} АККАУНТОВ</span></div><div className="owner-data-filters"><label><Search size={14} /><input value={filters.q} onChange={(event) => update('q', event.target.value)} placeholder="Ник или имя" /></label><select value={filters.role} onChange={(event) => update('role', event.target.value)}><option value="">Все роли</option><option value="user">Пользователи</option><option value="moderator">Модераторы</option><option value="owner">Основатель</option></select><select value={filters.sort} onChange={(event) => update('sort', event.target.value)}><option value="activity">По активности</option><option value="submissions">По предложениям</option><option value="last_login">По последнему входу</option><option value="name">По имени</option></select></div><div className="users-table-wrap"><table className="users-table owner-users-table"><thead><tr><th>Пользователь</th><th>Роль</th><th>Видео</th><th>Идеи</th><th>На рассмотрении</th><th>Одобрено</th><th>Отказано</th><th>Отсмотрено</th><th>Голоса</th><th>Действия</th><th>Последний вход</th></tr></thead><tbody>{result.items.map((item) => <tr key={item.user.id} onClick={() => setSelected(item.user.id)}><td><span className="user-cell"><Avatar small src={item.user.avatar_url} name={item.user.display_name} /><b>{item.user.display_name || item.user.login}</b></span></td><td>{ROLE_LABELS[item.user.role] || item.user.role}</td><td>{item.videos}</td><td>{item.ideas}</td><td>{item.pending}</td><td>{item.approved}</td><td>{item.rejected}</td><td>{item.watched}</td><td>{item.votes}</td><td>{item.actions}</td><td>{item.last_login_at ? new Date(item.last_login_at).toLocaleString('ru-RU') : '—'}</td></tr>)}</tbody></table>{loading && <div className="owner-table-loading"><span className="clips-loader" /> Обновляем…</div>}{error && <div className="owner-table-loading error">{error}</div>}{!loading && !error && !result.items.length && <div className="owner-table-loading">Пользователи не найдены</div>}</div><div className="owner-pagination"><span>{result.total ? `${offset + 1}–${Math.min(offset + limit, result.total)} из ${result.total}` : '0 из 0'}</span><div><button className="ghost-btn" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - limit))}>Назад</button><button className="ghost-btn" disabled={offset + limit >= result.total} onClick={() => setOffset(offset + limit)}>Дальше</button></div></div>{selected && <OwnerUserDetailModal userId={selected} notify={notify} onClose={() => setSelected('')} />}</section>;
+}
+
+function OwnerAuditPanel({ notify }) {
+  const [filters, setFilters] = useState({ q: '', action: '', target_type: '', from: '', to: '' });
+  const [offset, setOffset] = useState(0);
+  const [result, setResult] = useState({ items: [], total: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const limit = 50;
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    const timer = window.setTimeout(() => api.loadOwnerAudit({ ...filters, limit, offset }).then((value) => { if (active) setResult(value); }).catch((requestError) => { if (active) setError(requestError.message); }).finally(() => { if (active) setLoading(false); }), 220);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [filters, offset]);
+  const update = (key, value) => { setFilters((current) => ({ ...current, [key]: value })); setOffset(0); };
+  const actions = [...new Set(Object.keys(AUDIT_LABELS))];
+  return <section className="panel owner-panel owner-audit-panel"><div className="panel-head"><div><h2>Полный журнал действий</h2><p>Авторизация, предложения, голосования, модерация и настройки</p></div><span className="panel-kicker">{result.total} СОБЫТИЙ</span></div><div className="owner-data-filters audit-filters"><label><Search size={14} /><input value={filters.q} onChange={(event) => update('q', event.target.value)} placeholder="Пользователь, действие или ID" /></label><select value={filters.action} onChange={(event) => update('action', event.target.value)}><option value="">Все действия</option>{actions.map((action) => <option key={action} value={action}>{AUDIT_LABELS[action]}</option>)}</select><select value={filters.target_type} onChange={(event) => update('target_type', event.target.value)}><option value="">Все объекты</option><option value="submission">Предложения</option><option value="user">Пользователи</option><option value="category">Категории</option><option value="news_post">Новости</option><option value="news_comment">Комментарии</option><option value="system">Система</option></select><label className="audit-date">От<input type="date" value={filters.from} onChange={(event) => update('from', event.target.value)} /></label><label className="audit-date">До<input type="date" value={filters.to} onChange={(event) => update('to', event.target.value)} /></label></div><div className="audit-table-wrap"><table className="users-table audit-table"><thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>ID</th><th>Данные</th></tr></thead><tbody>{result.items.map((entry) => <tr key={entry.id}><td>{new Date(entry.created_at).toLocaleString('ru-RU')}</td><td><span className="user-cell">{entry.actor && <Avatar small src={entry.actor.avatar_url} name={entry.actor.display_name} />}<b>{entry.actor?.display_name || entry.actor?.login || 'Система'}</b></span></td><td><span className="audit-action-chip">{AUDIT_LABELS[entry.action] || entry.action}</span></td><td>{entry.target_type}</td><td className="audit-target-id">{entry.target_id}</td><td className="audit-metadata">{entry.metadata && Object.keys(entry.metadata).length ? JSON.stringify(entry.metadata) : '—'}</td></tr>)}</tbody></table>{loading && <div className="owner-table-loading"><span className="clips-loader" /> Загружаем журнал…</div>}{error && <div className="owner-table-loading error">{error}</div>}{!loading && !error && !result.items.length && <div className="owner-table-loading">События не найдены</div>}</div><div className="owner-pagination"><span>{result.total ? `${offset + 1}–${Math.min(offset + limit, result.total)} из ${result.total}` : '0 из 0'}</span><div><button className="ghost-btn" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - limit))}>Назад</button><button className="ghost-btn" disabled={offset + limit >= result.total} onClick={() => setOffset(offset + limit)}>Дальше</button></div></div></section>;
+}
+
 function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, onAddModerator, onDeleteModerator, onUpdateSettings }) {
   const [moderator, setModerator] = useState('');
   const [category, setCategory] = useState('');
@@ -2486,21 +2551,8 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
         </section>
       </div>
       {linksEditorOpen && <SiteLinksModal links={settings.siteLinks || []} notify={notify} onClose={() => setLinksEditorOpen(false)} onSave={async (siteLinks) => { await persistSettings({ ...settings, siteLinks }); notify('Плашки сохранены'); }} />}
-      <section className="panel owner-panel users-panel">
-        <div className="panel-head"><h2>Пользователи</h2><span className="panel-kicker">{state.userStats?.length || 0} АККАУНТОВ</span></div>
-        <div className="users-table-wrap">
-          <table className="users-table">
-            <thead><tr><th>Пользователь</th><th>Роль</th><th>Всего</th><th>На рассмотрении</th><th>Одобрено</th><th>Отказано</th><th>Отсмотрено</th><th>Комментарии</th><th>Последний вход</th></tr></thead>
-            <tbody>{(state.userStats || []).map((item) => (
-              <tr key={item.user.id}>
-                <td><span className="user-cell"><Avatar small src={item.user.avatar_url} name={item.user.display_name} /><b>{item.user.display_name || item.user.login}</b></span></td>
-                <td>{ROLE_LABELS[item.user.role] || item.user.role}</td><td>{item.total}</td><td>{item.pending}</td><td>{item.approved}</td><td>{item.rejected}</td><td>{item.watched}</td><td>{item.comments}</td>
-                <td>{item.last_login_at ? new Date(item.last_login_at).toLocaleString('ru-RU') : '—'}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      </section>
+      <OwnerUsersPanel notify={notify} />
+      <OwnerAuditPanel notify={notify} />
       <section className="panel owner-panel users-panel">
         <div className="panel-head"><h2>Все действия пользователей</h2><span className="panel-kicker">ПОСЛЕДНИЕ {state.auditRecords?.length || 0}</span></div>
         <div className="users-table-wrap">

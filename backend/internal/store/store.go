@@ -28,6 +28,26 @@ type FeedParams struct {
 	UserID   string
 }
 
+type UserStatsParams struct {
+	UserID string
+	Query  string
+	Role   string
+	Sort   string
+	Limit  int
+	Offset int
+}
+
+type AuditParams struct {
+	Query      string
+	UserID     string
+	Action     string
+	TargetType string
+	From       *time.Time
+	To         *time.Time
+	Limit      int
+	Offset     int
+}
+
 type CreateSubmissionInput struct {
 	ContentKind      string
 	SourceType       string
@@ -114,11 +134,13 @@ type Store interface {
 	AssignModerator(context.Context, string, string) (domain.User, error)
 	RemoveModerator(context.Context, string, string) error
 	ListModerators(context.Context) ([]domain.User, error)
-	ListUsersStats(context.Context, int) ([]domain.UserStats, error)
+	ListUsersStats(context.Context, UserStatsParams) ([]domain.UserStats, int, error)
+	UserDetail(context.Context, string) (domain.UserDetail, error)
 	ListNotifications(context.Context, string, int) ([]domain.Notification, error)
 	MarkNotificationRead(context.Context, string, string) error
 	MarkAllNotificationsRead(context.Context, string) error
-	ListAudit(context.Context, int) ([]domain.AuditEntry, error)
+	ListAudit(context.Context, AuditParams) ([]domain.AuditEntry, int, error)
+	WriteAudit(context.Context, string, string, string, string, map[string]any) error
 	GetSettings(context.Context) (domain.GlobalSettings, error)
 	UpdateSettings(context.Context, domain.GlobalSettings, string) error
 	UpsertTwitchUser(context.Context, string, string, string, string) (domain.User, error)

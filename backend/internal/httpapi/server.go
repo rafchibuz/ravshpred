@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/owner/moderators", s.assignModerator)
 	mux.HandleFunc("GET /api/owner/moderators", s.listModerators)
 	mux.HandleFunc("GET /api/owner/users", s.listUsers)
+	mux.HandleFunc("GET /api/owner/users/{id}", s.userDetail)
 	mux.HandleFunc("DELETE /api/owner/moderators/{id}", s.removeModerator)
 	mux.HandleFunc("GET /api/owner/audit", s.audit)
 	mux.HandleFunc("GET /api/owner/settings", s.settings)
@@ -647,8 +648,12 @@ func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user domai
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	actor, _ := s.actor(r)
 	if cookie, err := r.Cookie(s.cfg.SessionCookieName); err == nil {
 		_ = s.store.RevokeSession(r.Context(), hash(cookie.Value))
+	}
+	if actor != nil {
+		_ = s.store.WriteAudit(r.Context(), actor.User.ID, "logout", "user", actor.User.ID, nil)
 	}
 	s.clearSessionCookies(w)
 	w.WriteHeader(http.StatusNoContent)
@@ -836,6 +841,7 @@ func (s *Server) readNotification(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, err)
 		return
 	}
+	_ = s.store.WriteAudit(r.Context(), actor.User.ID, "notification_read", "notification", r.PathValue("id"), nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -848,6 +854,7 @@ func (s *Server) readAllNotifications(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
+	_ = s.store.WriteAudit(r.Context(), actor.User.ID, "notifications_read_all", "notification", "all", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1102,12 +1109,27 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	if s.require(w, r, "manage") == nil {
 		return
 	}
-	items, err := s.store.ListUsersStats(r.Context(), intQuery(r, "limit", 100))
+	items, total, err := s.store.ListUsersStats(r.Context(), store.UserStatsParams{
+		Query: strings.TrimSpace(r.URL.Query().Get("q")), Role: r.URL.Query().Get("role"),
+		Sort: r.URL.Query().Get("sort"), Limit: intQuery(r, "limit", 50), Offset: nonnegativeQuery(r, "offset"),
+	})
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "meta": map[string]any{"total": total}})
+}
+
+func (s *Server) userDetail(w http.ResponseWriter, r *http.Request) {
+	if s.require(w, r, "manage") == nil {
+		return
+	}
+	item, err := s.store.UserDetail(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
 func (s *Server) removeModerator(w http.ResponseWriter, r *http.Request) {
@@ -1126,12 +1148,34 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 	if s.require(w, r, "manage") == nil {
 		return
 	}
-	items, err := s.store.ListAudit(r.Context(), intQuery(r, "limit", 100))
+	var from, to *time.Time
+	if value := strings.TrimSpace(r.URL.Query().Get("from")); value != "" {
+		parsed, err := time.Parse("2006-01-02", value)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_period", "Некорректная дата начала")
+			return
+		}
+		from = &parsed
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("to")); value != "" {
+		parsed, err := time.Parse("2006-01-02", value)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_period", "Некорректная дата окончания")
+			return
+		}
+		parsed = parsed.Add(24*time.Hour - time.Nanosecond)
+		to = &parsed
+	}
+	items, total, err := s.store.ListAudit(r.Context(), store.AuditParams{
+		Query: strings.TrimSpace(r.URL.Query().Get("q")), UserID: r.URL.Query().Get("user_id"),
+		Action: r.URL.Query().Get("action"), TargetType: r.URL.Query().Get("target_type"),
+		From: from, To: to, Limit: intQuery(r, "limit", 50), Offset: nonnegativeQuery(r, "offset"),
+	})
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "meta": map[string]any{"total": total}})
 }
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
@@ -1315,6 +1359,14 @@ func intQuery(r *http.Request, key string, fallback int) int {
 	value, err := strconv.Atoi(r.URL.Query().Get(key))
 	if err != nil || value < 1 {
 		return fallback
+	}
+	return value
+}
+
+func nonnegativeQuery(r *http.Request, key string) int {
+	value, err := strconv.Atoi(r.URL.Query().Get(key))
+	if err != nil || value < 0 {
+		return 0
 	}
 	return value
 }

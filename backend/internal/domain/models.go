@@ -150,15 +150,37 @@ type StreamerStatus struct {
 }
 
 type UserStats struct {
-	User      User       `json:"user"`
-	LastLogin *time.Time `json:"last_login_at,omitempty"`
-	Total     int        `json:"total"`
-	Pending   int        `json:"pending"`
-	Approved  int        `json:"approved"`
-	Rejected  int        `json:"rejected"`
-	Watched   int        `json:"watched"`
-	Deleted   int        `json:"deleted"`
-	Comments  int        `json:"comments"`
+	User             User       `json:"user"`
+	LastLogin        *time.Time `json:"last_login_at,omitempty"`
+	Total            int        `json:"total"`
+	Videos           int        `json:"videos"`
+	Ideas            int        `json:"ideas"`
+	Pending          int        `json:"pending"`
+	Approved         int        `json:"approved"`
+	Rejected         int        `json:"rejected"`
+	ChangesRequested int        `json:"changes_requested"`
+	Hidden           int        `json:"hidden"`
+	Watched          int        `json:"watched"`
+	Deleted          int        `json:"deleted"`
+	Comments         int        `json:"comments"`
+	Votes            int        `json:"votes"`
+	Actions          int        `json:"actions"`
+}
+
+type UserSubmissionActivity struct {
+	ID          string           `json:"id"`
+	Title       string           `json:"title"`
+	ContentKind string           `json:"content_kind"`
+	Status      SubmissionStatus `json:"status"`
+	Deleted     bool             `json:"deleted"`
+	Watched     bool             `json:"watched"`
+	CreatedAt   time.Time        `json:"created_at"`
+}
+
+type UserDetail struct {
+	Stats       UserStats                `json:"stats"`
+	Submissions []UserSubmissionActivity `json:"submissions"`
+	Audit       []AuditEntry             `json:"audit"`
 }
 
 func Can(role Role, action string) bool {

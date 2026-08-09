@@ -243,6 +243,22 @@ export function refreshTwitchCache() {
   return request('/owner/twitch-cache/refresh', { method: 'POST' }).then((payload) => payload.data || null);
 }
 
+export function loadOwnerUsers(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value != null) params.set(key, value); });
+  return request(`/owner/users?${params}`).then((payload) => ({ items: payload.data || [], total: Number(payload.meta?.total || 0) }));
+}
+
+export function loadOwnerUser(userId) {
+  return request(`/owner/users/${encodeURIComponent(userId)}`).then((payload) => payload.data || null);
+}
+
+export function loadOwnerAudit(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value != null) params.set(key, value); });
+  return request(`/owner/audit?${params}`).then((payload) => ({ items: payload.data || [], total: Number(payload.meta?.total || 0) }));
+}
+
 export function vote(videoId, value) {
   return request(`/videos/${videoId}/vote`, { method: 'PUT', body: { value } });
 }
