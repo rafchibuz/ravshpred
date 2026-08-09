@@ -168,19 +168,12 @@ export async function loadWorkspace(role) {
     }));
   }
   if (role === 'owner') {
-    const [moderators, audit, settings, users] = await Promise.all([
+    const [moderators, settings] = await Promise.all([
       request('/owner/moderators'),
-      request('/owner/audit?limit=100'),
       request('/owner/settings'),
-      request('/owner/users?limit=100'),
     ]);
     result.moderatorRecords = moderators.data || [];
     result.moderators = result.moderatorRecords.map((user) => user.login || user.display_name);
-    result.auditRecords = audit.data || [];
-    result.audit = result.auditRecords.map((entry) => {
-      const actor = entry.actor?.display_name || entry.actor?.login || 'Система';
-      return `${actor}: ${entry.action} · ${entry.target_type} #${entry.target_id}`;
-    });
     const legacySocials = settings.data.socials || {};
     const legacySocialLinks = Object.entries(legacySocials)
       .filter(([, url]) => url)
@@ -199,7 +192,6 @@ export async function loadWorkspace(role) {
       supportLinks,
       siteLinks: [...socialLinks, ...supportLinks],
     };
-    result.userStats = users.data || [];
   }
   return result;
 }

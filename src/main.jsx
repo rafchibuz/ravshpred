@@ -80,6 +80,25 @@ const AUDIT_LABELS = {
   settings_update: 'Изменение настроек', notification_read: 'Прочитано уведомление',
   notifications_read_all: 'Прочитаны уведомления',
 };
+const AUDIT_TARGET_LABELS = {
+  submission: 'предложение', user: 'пользователя', category: 'категорию', news_post: 'новость',
+  news_comment: 'комментарий', notification: 'уведомление', system: 'систему',
+};
+
+function profileDecisionText(video) {
+  const comment = video.moderatorComment?.trim();
+  if (comment) return comment;
+  if (video.status === 'pending') return 'Ожидает решения модератора';
+  if (video.status === 'changes_requested') return 'Модератор ожидает исправлений';
+  return 'Без комментариев';
+}
+
+function auditDetailText(entry) {
+  const action = AUDIT_LABELS[entry.action] || entry.action;
+  const target = AUDIT_TARGET_LABELS[entry.target_type] || entry.target_type || 'объект';
+  if (entry.action === 'vote' && Number(entry.metadata?.value) !== 0) return `${Number(entry.metadata.value) > 0 ? 'Поставлен лайк' : 'Поставлен дизлайк'} на ${target}`;
+  return `${action}: ${target}`;
+}
 
 function playNewSubmissionSound(audioContextRef) {
   const context = audioContextRef.current;
@@ -1932,7 +1951,7 @@ function ProfileView({ videos, actor, navigate }) {
               <span>{video.category} · {new Date(video.createdAt).toLocaleString('ru-RU')}</span>
             </div>
             <span className={`status ${video.status}`}>{STATUS_LABELS[video.status]}{video.watched && <small>{video.contentKind === 'stream_idea' ? 'Реализовано' : 'Отсмотрено'}</small>}</span>
-            <span className="decision">{video.moderatorComment || 'Ожидает решения модератора'}</span>
+            <span className="decision">{profileDecisionText(video)}</span>
           </div>
         ))}
         {!filtered.length && <div className="compact-empty">В этом разделе пока нет видео</div>}
@@ -2336,7 +2355,7 @@ function OwnerAuditPanel({ notify }) {
   }, [filters, offset]);
   const update = (key, value) => { setFilters((current) => ({ ...current, [key]: value })); setOffset(0); };
   const actions = [...new Set(Object.keys(AUDIT_LABELS))];
-  return <section className="panel owner-panel owner-audit-panel"><div className="panel-head"><div><h2>Полный журнал действий</h2><p>Авторизация, предложения, голосования, модерация и настройки</p></div><span className="panel-kicker">{result.total} СОБЫТИЙ</span></div><div className="owner-data-filters audit-filters"><label><Search size={14} /><input value={filters.q} onChange={(event) => update('q', event.target.value)} placeholder="Пользователь, действие или ID" /></label><select value={filters.action} onChange={(event) => update('action', event.target.value)}><option value="">Все действия</option>{actions.map((action) => <option key={action} value={action}>{AUDIT_LABELS[action]}</option>)}</select><select value={filters.target_type} onChange={(event) => update('target_type', event.target.value)}><option value="">Все объекты</option><option value="submission">Предложения</option><option value="user">Пользователи</option><option value="category">Категории</option><option value="news_post">Новости</option><option value="news_comment">Комментарии</option><option value="system">Система</option></select><label className="audit-date">От<input type="date" value={filters.from} onChange={(event) => update('from', event.target.value)} /></label><label className="audit-date">До<input type="date" value={filters.to} onChange={(event) => update('to', event.target.value)} /></label></div><div className="audit-table-wrap"><table className="users-table audit-table"><thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>ID</th><th>Данные</th></tr></thead><tbody>{result.items.map((entry) => <tr key={entry.id}><td>{new Date(entry.created_at).toLocaleString('ru-RU')}</td><td><span className="user-cell">{entry.actor && <Avatar small src={entry.actor.avatar_url} name={entry.actor.display_name} />}<b>{entry.actor?.display_name || entry.actor?.login || 'Система'}</b></span></td><td><span className="audit-action-chip">{AUDIT_LABELS[entry.action] || entry.action}</span></td><td>{entry.target_type}</td><td className="audit-target-id">{entry.target_id}</td><td className="audit-metadata">{entry.metadata && Object.keys(entry.metadata).length ? JSON.stringify(entry.metadata) : '—'}</td></tr>)}</tbody></table>{loading && <div className="owner-table-loading"><span className="clips-loader" /> Загружаем журнал…</div>}{error && <div className="owner-table-loading error">{error}</div>}{!loading && !error && !result.items.length && <div className="owner-table-loading">События не найдены</div>}</div><div className="owner-pagination"><span>{result.total ? `${offset + 1}–${Math.min(offset + limit, result.total)} из ${result.total}` : '0 из 0'}</span><div><button className="ghost-btn" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - limit))}>Назад</button><button className="ghost-btn" disabled={offset + limit >= result.total} onClick={() => setOffset(offset + limit)}>Дальше</button></div></div></section>;
+  return <section className="panel owner-panel owner-audit-panel"><div className="panel-head"><div><h2>Полный журнал действий</h2><p>Авторизация, предложения, голосования, модерация и настройки</p></div><span className="panel-kicker">{result.total} СОБЫТИЙ</span></div><div className="owner-data-filters audit-filters"><label><Search size={14} /><input value={filters.q} onChange={(event) => update('q', event.target.value)} placeholder="Пользователь, действие или ID" /></label><select value={filters.action} onChange={(event) => update('action', event.target.value)}><option value="">Все действия</option>{actions.map((action) => <option key={action} value={action}>{AUDIT_LABELS[action]}</option>)}</select><select value={filters.target_type} onChange={(event) => update('target_type', event.target.value)}><option value="">Все объекты</option><option value="submission">Предложения</option><option value="user">Пользователи</option><option value="category">Категории</option><option value="news_post">Новости</option><option value="news_comment">Комментарии</option><option value="system">Система</option></select><label className="audit-date">От<input type="date" value={filters.from} onChange={(event) => update('from', event.target.value)} /></label><label className="audit-date">До<input type="date" value={filters.to} onChange={(event) => update('to', event.target.value)} /></label></div><div className="audit-table-wrap"><table className="users-table audit-table"><thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>ID</th><th>Что произошло</th></tr></thead><tbody>{result.items.map((entry) => <tr key={entry.id}><td>{new Date(entry.created_at).toLocaleString('ru-RU')}</td><td><span className="user-cell">{entry.actor && <Avatar small src={entry.actor.avatar_url} name={entry.actor.display_name} />}<b>{entry.actor?.display_name || entry.actor?.login || 'Система'}</b></span></td><td><span className="audit-action-chip">{AUDIT_LABELS[entry.action] || entry.action}</span></td><td>{AUDIT_TARGET_LABELS[entry.target_type] || entry.target_type}</td><td className="audit-target-id" title={entry.target_id}>{entry.target_id}</td><td className="audit-details"><details><summary>{auditDetailText(entry)} <span>Подробнее</span></summary><div><p><b>Действие:</b> {AUDIT_LABELS[entry.action] || entry.action}</p><p><b>Объект:</b> {AUDIT_TARGET_LABELS[entry.target_type] || entry.target_type} #{entry.target_id}</p>{entry.metadata && Object.keys(entry.metadata).length > 0 && <><b>Дополнительные данные:</b><pre>{JSON.stringify(entry.metadata, null, 2)}</pre></>}</div></details></td></tr>)}</tbody></table>{loading && <div className="owner-table-loading"><span className="clips-loader" /> Загружаем журнал…</div>}{error && <div className="owner-table-loading error">{error}</div>}{!loading && !error && !result.items.length && <div className="owner-table-loading">События не найдены</div>}</div><div className="owner-pagination"><span>{result.total ? `${offset + 1}–${Math.min(offset + limit, result.total)} из ${result.total}` : '0 из 0'}</span><div><button className="ghost-btn" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - limit))}>Назад</button><button className="ghost-btn" disabled={offset + limit >= result.total} onClick={() => setOffset(offset + limit)}>Дальше</button></div></div></section>;
 }
 
 function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, onAddModerator, onDeleteModerator, onUpdateSettings }) {
@@ -2416,7 +2435,7 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
         <div><b className="green">{state.videos.filter((video) => video.status === 'approved').length}</b><span>Видео в публичной ленте</span></div>
         <div><b className="amber-text">{state.moderators.length}</b><span>Активных модератора</span></div>
       </div>
-      <div className="owner-columns">
+      <div className="owner-columns single">
         <section className="panel owner-panel">
           <div className="panel-head"><h2>Модераторы</h2><span className="panel-kicker">{state.moderators.length} АКТИВНЫХ</span></div>
           <div className="add-row">
@@ -2450,15 +2469,6 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
               >
                 Удалить
               </button>
-            </div>
-          ))}
-        </section>
-        <section className="panel owner-panel">
-          <div className="panel-head"><h2>Журнал действий</h2><span className="panel-kicker">ЛОКАЛЬНЫЙ АУДИТ</span></div>
-          {state.audit.slice(0, 7).map((line, index) => (
-            <div className="audit-row" key={`${line}-${index}`}>
-              <i className={`audit-dot a${index % 4}`} />
-              <div><strong>{line}</strong><span>Локальная сессия</span></div>
             </div>
           ))}
         </section>
@@ -2553,22 +2563,6 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
       {linksEditorOpen && <SiteLinksModal links={settings.siteLinks || []} notify={notify} onClose={() => setLinksEditorOpen(false)} onSave={async (siteLinks) => { await persistSettings({ ...settings, siteLinks }); notify('Плашки сохранены'); }} />}
       <OwnerUsersPanel notify={notify} />
       <OwnerAuditPanel notify={notify} />
-      <section className="panel owner-panel users-panel">
-        <div className="panel-head"><h2>Все действия пользователей</h2><span className="panel-kicker">ПОСЛЕДНИЕ {state.auditRecords?.length || 0}</span></div>
-        <div className="users-table-wrap">
-          <table className="users-table audit-table">
-            <thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>ID</th><th>Детали</th></tr></thead>
-            <tbody>{(state.auditRecords || []).map((entry) => (
-              <tr key={entry.id}>
-                <td>{new Date(entry.created_at).toLocaleString('ru-RU')}</td>
-                <td>{entry.actor?.display_name || entry.actor?.login || 'Система'}</td>
-                <td><b>{entry.action}</b></td><td>{entry.target_type}</td><td>{entry.target_id}</td>
-                <td>{entry.metadata && JSON.stringify(entry.metadata) !== '{}' ? JSON.stringify(entry.metadata) : '—'}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      </section>
     </main>
   );
 }

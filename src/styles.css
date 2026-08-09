@@ -287,6 +287,16 @@
 .audit-action-chip { display: inline-flex; padding: 4px 7px; border-radius: 12px; color: #d5a7f8; background: #30203d; font-size: 8px; }
 .audit-target-id { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
 .audit-metadata { max-width: 290px; overflow: hidden; color: #746d7a !important; text-overflow: ellipsis; }
+.owner-columns.single { grid-template-columns: 1fr; }
+.audit-table td.audit-details { min-width: 280px; max-width: 430px; overflow: visible; white-space: normal; }
+.audit-details details { color: #9d96a3; }
+.audit-details summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; color: #b7b0bc; font-size: 9px; line-height: 1.35; list-style: none; }
+.audit-details summary::-webkit-details-marker { display: none; }
+.audit-details summary span { flex: 0 0 auto; color: #b76dff; font-size: 8px; }
+.audit-details details[open] summary { padding-bottom: 8px; border-bottom: 1px solid #332d38; }
+.audit-details details > div { display: grid; gap: 6px; margin-top: 8px; padding: 9px; border-radius: 7px; background: #111015; }
+.audit-details p { margin: 0; color: #aaa3af; font-size: 9px; overflow-wrap: anywhere; }
+.audit-details pre { max-height: 220px; margin: 0; padding: 8px; overflow: auto; border: 1px solid #312c35; border-radius: 5px; color: #c9c1ce; background: #0b0a0e; font: 9px/1.45 monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .owner-detail-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(5,4,7,.88); backdrop-filter: blur(5px); }
 .owner-user-detail { width: min(1180px,94vw); max-height: 90vh; overflow: auto; padding: 20px; border: 1px solid #3b3243; border-radius: 13px; background: #121015; box-shadow: 0 28px 90px rgba(0,0,0,.72); }
 .owner-user-detail > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-bottom: 15px; border-bottom: 1px solid #2c2731; }
