@@ -830,7 +830,6 @@ function StreamerAbout() {
           <span className="panel-kicker">О СТРИМЕРЕ</span>
           <h2 id="streamer-about-title">Равшан Джульпаев</h2>
           <p>Я Равшан Джульпаев - человек загадочной национальности, проживающий не на территории России, 3-ех кратный чемпион мира по профессиональным вертушкам, преподает детям вертушки, в свободное время стримит, закидывает снюс и ведет разговоры со своей собакой, которую зовут Джордан.</p>
-          <div className="streamer-about-tags"><span>3× чемпион мира</span><span>стримы каждый день</span><span>Джордан — лучший друг</span></div>
         </div>
         <div className="streamer-about-portraits" aria-hidden="true">
           <img className="about-photo-main" src={ravshanBalancePhoto} alt="" />
