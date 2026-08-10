@@ -476,7 +476,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
   const [mobileOpen, setMobileOpen] = useState(false);
   const nav = [
     { key: 'home', label: 'Главная', icon: Home },
-    { key: 'community', label: 'Сообщество', icon: Play },
+    { key: 'community', label: 'Предложка', icon: Play },
     { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
     { key: 'vods', label: 'Записи стримов', icon: VideoIcon },
     { key: 'rating', label: 'РЕЙТИНГ', icon: Trophy },
@@ -549,7 +549,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
 function SiteFooter({ navigate }) {
   return (
     <footer className="site-footer">
-      <span>© {new Date().getFullYear()} RAVSHANN Сообщество</span>
+      <span>© {new Date().getFullYear()} RAVSHANN Предложка</span>
       <nav aria-label="Служебные страницы">
         <button onClick={() => navigate('rules')}>Правила</button>
         <button onClick={() => navigate('privacy')}>Конфиденциальность</button>
@@ -1419,7 +1419,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
           <div className="eyebrow">
             <span className="live-dot" /> ПУБЛИЧНАЯ ЛЕНТА
           </div>
-          <h1>Сообщество Равшана</h1>
+          <h1>Предложка Равшана</h1>
           <p>Предложенные видео сообщества — по умолчанию показаны только одобренные</p>
         </div>
         <div className="heading-actions">
@@ -1825,7 +1825,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
       <main className="main-content narrow">
         <section className="page-heading">
           <div><div className="eyebrow">НОВОЕ ПРЕДЛОЖЕНИЕ</div><h1>Что хотите предложить?</h1><p>Выберите раздел — дальше откроются только нужные поля.</p></div>
-          <button className="ghost-btn" onClick={() => navigate('community')}>Назад в сообщество</button>
+          <button className="ghost-btn" onClick={() => navigate('community')}>Назад в предложку</button>
         </section>
         <section className="submission-kind-picker">
           <button className="submission-kind-card" onClick={() => setContentKind('video')}>
@@ -1865,7 +1865,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
         <div>
           <div className="eyebrow">НОВАЯ ОТПРАВКА</div>
           <h1>{isIdea ? 'Предложить идею для стрима' : 'Предложить видео'}</h1>
-          <p>{isIdea ? 'Опишите идею — пользователи смогут увидеть и оценить её в сообществе' : 'Выберите источник, категорию и прикрепите ссылку'}</p>
+          <p>{isIdea ? 'Опишите идею — пользователи смогут увидеть и оценить её в предложке' : 'Выберите источник, категорию и прикрепите ссылку'}</p>
         </div>
         <button className="ghost-btn" onClick={() => navigate('community')}>Назад к ленте</button>
       </section>
@@ -2811,7 +2811,7 @@ function ViewerRatingView({ actor, role, onLogin }) {
   return <main className="main-content rating-page">
     <section className="page-heading rating-heading">
       <div>
-        <span className="eyebrow"><Trophy size={13} /> СООБЩЕСТВО РАВШАНА</span>
+        <span className="eyebrow"><Trophy size={13} /> ЗРИТЕЛИ РАВШАНА</span>
         <h1>РЕЙТИНГ</h1>
         <p>Активность зрителей в чатах RavshanN и ravshanbtw. Роли Twitch не дают дополнительных баллов.</p>
       </div>
