@@ -841,7 +841,10 @@ body.modal-open { overflow: hidden; }
   .twitch-chat-frame { grid-column: 1; grid-row: 2; height: 430px !important; }
   .stream-info-bar { grid-template-columns: 1fr; gap: 11px; padding: 12px; }
   .stream-channel-info > .avatar { width: 43px; height: 43px; }
-  .stream-live-metrics { justify-content: space-between; padding-left: 55px; }
+  .stream-live-metrics { display: grid; grid-template-columns: auto auto auto; gap: 8px 12px; padding-left: 55px; white-space: normal; }
+  .stream-live-metrics b { text-align: center; }
+  .stream-live-metrics time { min-width: 0; text-align: right; }
+  .stream-live-metrics .stream-open-link { grid-column: 1 / -1; width: 100%; justify-content: center; box-sizing: border-box; }
   .stream-socials { align-items: flex-start; flex-direction: column; }
   .social-links { justify-content: flex-start; }
   .legal-sections .panel { padding: 18px 15px; }
