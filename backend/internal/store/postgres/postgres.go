@@ -39,6 +39,9 @@ var twitchCacheSchema string
 //go:embed migrations/000007_unban_appeals.sql
 var unbanAppealsSchema string
 
+//go:embed migrations/000008_viewer_rating.sql
+var viewerRatingSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -81,6 +84,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, unbanAppealsSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply unban appeals schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, viewerRatingSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply viewer rating schema: %w", err)
 	}
 	return result, nil
 }

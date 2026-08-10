@@ -26,6 +26,7 @@ type stubStore struct {
 	createdInput *store.CreateSubmissionInput
 	updatedInput *store.UpdateSubmissionContentInput
 	unbanInput   *store.CreateUnbanAppealInput
+	rating       domain.ViewerRating
 }
 
 func (s *stubStore) Ping(context.Context) error { return nil }
@@ -57,6 +58,9 @@ func (s *stubStore) CreateNewsPost(_ context.Context, authorID, title, body stri
 }
 func (s *stubStore) GetSettings(context.Context) (domain.GlobalSettings, error) {
 	return domain.GlobalSettings{SubmissionDailyLimit: 5, CommentLimit: 500}, nil
+}
+func (s *stubStore) ViewerRating(context.Context, []string, *time.Time, string, int) (domain.ViewerRating, error) {
+	return s.rating, nil
 }
 func (s *stubStore) CreateSubmission(_ context.Context, input store.CreateSubmissionInput) (domain.Video, error) {
 	s.createdInput = &input
@@ -92,7 +96,7 @@ func TestPublicHealthAndCategories(t *testing.T) {
 	t.Parallel()
 	handler := testServer(&stubStore{categories: []domain.Category{{ID: "1", Slug: "funny", Name: "Смешное"}}})
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/categories", "/api/news"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/categories", "/api/news", "/api/rating"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

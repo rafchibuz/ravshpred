@@ -474,6 +474,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
     { key: 'feed', label: 'Предложка', icon: Play },
     { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
     { key: 'vods', label: 'Записи стримов', icon: VideoIcon },
+    { key: 'rating', label: 'РЕЙТИНГ', icon: Trophy },
     { key: 'news', label: 'Новости', icon: Newspaper },
     { key: 'unban', label: 'Разбан', icon: ShieldAlert },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
@@ -2687,6 +2688,85 @@ function AccessDenied({ role, onAccess }) {
   );
 }
 
+const RATING_ROLE_LABELS = {
+  viewer: 'Зритель', vip: 'VIP', moderator: 'Модератор', broadcaster: 'Стример',
+};
+
+function RatingAvatar({ entry }) {
+  if (entry.avatar_url) return <img src={entry.avatar_url} alt="" referrerPolicy="no-referrer" />;
+  return <span>{(entry.display_name || entry.login || '?')[0].toUpperCase()}</span>;
+}
+
+function ViewerRatingView({ actor, role, onLogin }) {
+  const [channel, setChannel] = useState('all');
+  const [period, setPeriod] = useState('90d');
+  const [rating, setRating] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    api.loadViewerRating(channel, period)
+      .then((value) => { if (active) setRating(value); })
+      .catch((reason) => { if (active) setError(reason.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [channel, period]);
+
+  const leaders = rating?.items?.slice(0, 3) || [];
+  const collectorActive = rating?.collectors?.some((item) => item.status === 'connected');
+  return <main className="main-content rating-page">
+    <section className="page-heading rating-heading">
+      <div>
+        <span className="eyebrow"><Trophy size={13} /> СООБЩЕСТВО РАВШАНА</span>
+        <h1>РЕЙТИНГ</h1>
+        <p>Активность зрителей в чатах RavshanN и ravshanbtw. Роли Twitch не дают дополнительных баллов.</p>
+      </div>
+      <div className="rating-heading-actions"><div className={`rating-live ${collectorActive ? 'is-live' : ''}`}><i />{collectorActive ? 'Сбор идёт' : 'Накапливаем данные'}</div>{role === 'owner' && !collectorActive && <button className="ghost-btn" onClick={() => window.location.assign('/api/owner/rating/connect')}>Подключить сбор Twitch</button>}</div>
+    </section>
+
+    <section className="rating-controls panel">
+      <div className="rating-filter"><span>Канал</span>{[['all', 'Общий'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
+      <div className="rating-filter"><span>Период</span>{[['30d', '30 дней'], ['90d', '90 дней'], ['all', 'Всё время']].map(([value, label]) => <button key={value} className={period === value ? 'selected' : ''} onClick={() => setPeriod(value)}>{label}</button>)}</div>
+      <div className="rating-summary"><b>{rating?.participant_count || 0}</b><span>участников</span><b>{rating?.stream_count || 0}</b><span>стримов</span></div>
+    </section>
+
+    {loading && <section className="rating-state panel"><span className="clips-loader" /> Загружаем рейтинг…</section>}
+    {!loading && error && <section className="rating-state panel red-text">{error}</section>}
+    {!loading && !error && !rating?.items?.length && <section className="rating-empty panel">
+      <Trophy size={34} />
+      <h2>Рейтинг только начинает собираться</h2>
+      <p>После сообщений зрителей во время следующих трансляций здесь появятся первые места. Чем больше накоплено стримов, тем точнее результат.</p>
+    </section>}
+
+    {!loading && leaders.length > 0 && <section className="rating-podium">
+      {leaders.map((entry, index) => <article key={entry.twitch_id} className={`rating-leader place-${index + 1}`}>
+        <div className="rating-medal">#{entry.rank}</div><div className="rating-avatar"><RatingAvatar entry={entry} /></div>
+        <h2>{entry.display_name}</h2><span>@{entry.login}</span><strong>{entry.score}<small>/100</small></strong>
+        <em>{RATING_ROLE_LABELS[entry.role] || 'Зритель'}</em>
+      </article>)}
+    </section>}
+
+    {!loading && rating?.items?.length > 0 && <section className="rating-table panel">
+      <div className="rating-table-head"><div><span className="eyebrow">ТОП ЗРИТЕЛЕЙ</span><h2>Первые 100 мест</h2></div><span>Баллы отражают регулярность и участие в эфирах</span></div>
+      <div className="rating-row rating-columns"><span>Место</span><span>Зритель</span><span>Роль</span><span>Эфиры</span><span>Дни</span><span>Сообщения</span><span>Баллы</span></div>
+      {rating.items.map((entry) => <div className={`rating-row ${rating.me?.twitch_id === entry.twitch_id ? 'is-me' : ''}`} key={entry.twitch_id}>
+        <strong className="rating-rank">#{entry.rank}</strong>
+        <div className="rating-user"><div className="rating-avatar small"><RatingAvatar entry={entry} /></div><span><b>{entry.display_name}</b><small>@{entry.login}</small></span></div>
+        <span><i className={`rating-role role-${entry.role}`}>{RATING_ROLE_LABELS[entry.role] || 'Зритель'}</i></span>
+        <b>{entry.active_streams}<small> / {rating.stream_count}</small></b><b>{entry.active_days}</b><b>{entry.messages.toLocaleString('ru-RU')}</b>
+        <strong className="rating-score">{entry.score}</strong>
+      </div>)}
+    </section>}
+
+    {rating?.me && rating.me.rank > 100 && <section className="rating-me panel"><span>Ваше место</span><strong>#{rating.me.rank}</strong><div><b>{rating.me.display_name}</b><small>{rating.me.score} баллов</small></div></section>}
+    {!actor && !loading && <section className="rating-login panel"><div><b>Хотите увидеть своё место?</b><span>Войдите через Twitch — сайт сопоставит аккаунт с активностью в чате.</span></div><button className="twitch-btn" onClick={onLogin}>Войти через Twitch</button></section>}
+    {role === 'owner' && rating && <section className="rating-owner panel"><div className="rating-owner-head"><div><span className="eyebrow">СБОР ДАННЫХ</span><h2>Подключение Twitch</h2></div><button className="ghost-btn" onClick={() => window.location.assign('/api/owner/rating/connect')}>{collectorActive ? 'Переподключить' : 'Подключить сбор'}</button></div><div className="rating-collector-list">{rating.collectors.map((collector) => <div key={collector.channel}><i className={collector.status === 'connected' ? 'is-live' : ''} /><span><b>{collector.channel === 'ravshann' ? 'RavshanN' : 'ravshanbtw'}</b><small>{collector.status === 'connected' ? `Подключено${collector.collector_user ? ` через @${collector.collector_user}` : ''}` : 'Ожидает подключения'}</small>{collector.last_error && <em>{collector.last_error}</em>}</span><time>{collector.last_event_at ? `Последнее событие ${new Date(collector.last_event_at).toLocaleString('ru-RU')}` : 'Событий пока нет'}</time></div>)}</div></section>}
+  </main>;
+}
+
 function App() {
   const defaultRoute = 'home';
   const [route, navigate] = useRoute(defaultRoute);
@@ -3043,6 +3123,7 @@ function App() {
   if (route === 'home') page = <StreamerHome streamer={state.streamer} navigate={navigate} />;
   else if (route === 'clips') page = <TwitchClipsView />;
   else if (route === 'vods') page = <TwitchVodsView navigate={navigate} />;
+  else if (route === 'rating') page = <ViewerRatingView actor={sessionUser} role={role} onLogin={openAuth} />;
   else if (route.startsWith('vod/')) page = <TwitchVodView videoId={route.slice(4)} navigate={navigate} />;
   else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;

@@ -67,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/twitch/videos", s.twitchVideos)
 	mux.HandleFunc("GET /api/twitch/videos/{id}", s.twitchVideo)
 	mux.HandleFunc("GET /api/twitch/cache-status", s.twitchCacheStatus)
+	mux.HandleFunc("GET /api/rating", s.viewerRating)
 	mux.HandleFunc("GET /api/news", s.news)
 	mux.HandleFunc("POST /api/news/{id}/comments", s.createNewsComment)
 	mux.HandleFunc("DELETE /api/news/comments/{id}", s.deleteNewsComment)
@@ -105,7 +106,51 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/owner/news", s.createNewsPost)
 	mux.HandleFunc("DELETE /api/owner/news/{id}", s.deleteNewsPost)
 	mux.HandleFunc("POST /api/owner/twitch-cache/refresh", s.refreshTwitchCacheNow)
+	mux.HandleFunc("GET /api/owner/rating/connect", s.connectRatingCollector)
 	return s.middleware(mux)
+}
+
+func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
+	channel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
+	channels := []string{"ravshann", "ravshanbtw"}
+	if channel != "" && channel != "all" {
+		if channel != "ravshann" && channel != "ravshanbtw" {
+			writeError(w, http.StatusBadRequest, "invalid_channel", "Неизвестный Twitch-канал")
+			return
+		}
+		channels = []string{channel}
+	} else {
+		channel = "all"
+	}
+	period := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("period")))
+	var since *time.Time
+	now := time.Now().UTC()
+	switch period {
+	case "30d":
+		value := now.AddDate(0, 0, -30)
+		since = &value
+	case "90d", "":
+		period = "90d"
+		value := now.AddDate(0, 0, -90)
+		since = &value
+	case "all":
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_period", "Неизвестный период рейтинга")
+		return
+	}
+	meTwitchID := ""
+	if actor, err := s.actor(r); err == nil && actor != nil {
+		meTwitchID = actor.User.TwitchID
+	}
+	result, err := s.store.ViewerRating(r.Context(), channels, since, meTwitchID, 100)
+	if err != nil {
+		s.logger.Error("viewer rating failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить рейтинг")
+		return
+	}
+	result.Channel = channel
+	result.Period = period
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
 func (s *Server) twitchVideos(w http.ResponseWriter, r *http.Request) {
@@ -601,6 +646,23 @@ func (s *Server) twitchStart(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.twitch.AuthorizationURL(state), http.StatusFound)
 }
 
+func (s *Server) connectRatingCollector(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	if !s.twitch.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "twitch_not_configured", "Twitch API ещё не настроен")
+		return
+	}
+	state, verifier := randomToken(32), randomToken(32)
+	if err := s.store.CreateOAuthState(r.Context(), hash(state), hash(verifier), "rating:/", time.Now().Add(10*time.Minute)); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	http.Redirect(w, r, s.twitch.AuthorizationURLWithScopes(state, []string{"user:read:chat"}), http.StatusFound)
+}
+
 func (s *Server) twitchCallback(w http.ResponseWriter, r *http.Request) {
 	if oauthError := r.URL.Query().Get("error"); oauthError != "" {
 		http.Redirect(w, r, s.cfg.BaseURL+"/?auth_error=denied", http.StatusFound)
@@ -616,12 +678,26 @@ func (s *Server) twitchCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.cfg.BaseURL+"/?auth_error=expired_state", http.StatusFound)
 		return
 	}
-	twitchUser, err := s.twitch.Exchange(r.Context(), code)
+	twitchToken, err := s.twitch.ExchangeUserToken(r.Context(), code)
 	if err != nil {
 		s.logger.Error("twitch authentication failed", "error", err)
 		http.Redirect(w, r, s.cfg.BaseURL+"/?auth_error=twitch", http.StatusFound)
 		return
 	}
+	if strings.HasPrefix(returnTo, "rating:") {
+		expiresAt := time.Now().Add(time.Duration(twitchToken.ExpiresIn) * time.Second)
+		if err := s.store.SaveRatingCredentials(r.Context(), twitch.RatingCredentials{
+			AccessToken: twitchToken.AccessToken, RefreshToken: twitchToken.RefreshToken,
+			UserID: twitchToken.User.ID, Login: twitchToken.User.Login, ExpiresAt: &expiresAt,
+		}); err != nil {
+			s.internalError(w, err)
+			return
+		}
+		target := strings.TrimPrefix(returnTo, "rating:")
+		http.Redirect(w, r, strings.TrimRight(s.cfg.BaseURL, "/")+target+"#/rating?collector=connected", http.StatusFound)
+		return
+	}
+	twitchUser := twitchToken.User
 	user, err := s.store.UpsertTwitchUser(r.Context(), twitchUser.ID, twitchUser.Login, twitchUser.DisplayName, twitchUser.AvatarURL)
 	if err != nil {
 		s.internalError(w, err)

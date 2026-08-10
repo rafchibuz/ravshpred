@@ -81,17 +81,33 @@ func (c *Client) Configured() bool {
 }
 
 func (c *Client) AuthorizationURL(state string) string {
+	return c.AuthorizationURLWithScopes(state, nil)
+}
+
+func (c *Client) AuthorizationURLWithScopes(state string, scopes []string) string {
 	values := url.Values{
 		"response_type": {"code"},
 		"client_id":     {c.clientID},
 		"redirect_uri":  {c.redirectURL},
-		"scope":         {""},
+		"scope":         {strings.Join(scopes, " ")},
 		"state":         {state},
 	}
 	return "https://id.twitch.tv/oauth2/authorize?" + values.Encode()
 }
 
+type UserToken struct {
+	User         User
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    int
+}
+
 func (c *Client) Exchange(ctx context.Context, code string) (User, error) {
+	result, err := c.ExchangeUserToken(ctx, code)
+	return result.User, err
+}
+
+func (c *Client) ExchangeUserToken(ctx context.Context, code string) (UserToken, error) {
 	values := url.Values{
 		"client_id":     {c.clientID},
 		"client_secret": {c.clientSecret},
@@ -101,51 +117,53 @@ func (c *Client) Exchange(ctx context.Context, code string) (User, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/token", strings.NewReader(values.Encode()))
 	if err != nil {
-		return User{}, err
+		return UserToken{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := c.http.Do(req)
 	if err != nil {
-		return User{}, fmt.Errorf("twitch token exchange: %w", err)
+		return UserToken{}, fmt.Errorf("twitch token exchange: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return User{}, fmt.Errorf("twitch token exchange returned %s", response.Status)
+		return UserToken{}, fmt.Errorf("twitch token exchange returned %s", response.Status)
 	}
 	var token struct {
-		AccessToken string `json:"access_token"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&token); err != nil {
-		return User{}, err
+		return UserToken{}, err
 	}
 	if token.AccessToken == "" {
-		return User{}, errors.New("twitch returned an empty access token")
+		return UserToken{}, errors.New("twitch returned an empty access token")
 	}
 
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/users", nil)
 	if err != nil {
-		return User{}, err
+		return UserToken{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Client-Id", c.clientID)
 	response, err = c.http.Do(req)
 	if err != nil {
-		return User{}, fmt.Errorf("twitch users request: %w", err)
+		return UserToken{}, fmt.Errorf("twitch users request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return User{}, fmt.Errorf("twitch users returned %s", response.Status)
+		return UserToken{}, fmt.Errorf("twitch users returned %s", response.Status)
 	}
 	var users struct {
 		Data []User `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&users); err != nil {
-		return User{}, err
+		return UserToken{}, err
 	}
 	if len(users.Data) != 1 {
-		return User{}, errors.New("twitch user not found")
+		return UserToken{}, errors.New("twitch user not found")
 	}
-	return users.Data[0], nil
+	return UserToken{User: users.Data[0], AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, ExpiresIn: token.ExpiresIn}, nil
 }
 
 func (c *Client) StreamByLogin(ctx context.Context, login string) (User, *Stream, error) {

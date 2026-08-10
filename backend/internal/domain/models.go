@@ -213,6 +213,44 @@ type UserDetail struct {
 	Audit       []AuditEntry             `json:"audit"`
 }
 
+type ViewerRatingEntry struct {
+	Rank           int        `json:"rank"`
+	TwitchID       string     `json:"twitch_id"`
+	Login          string     `json:"login"`
+	DisplayName    string     `json:"display_name"`
+	AvatarURL      string     `json:"avatar_url,omitempty"`
+	Role           string     `json:"role"`
+	Score          int        `json:"score"`
+	Messages       int        `json:"messages"`
+	ActiveStreams  int        `json:"active_streams"`
+	StreamCoverage int        `json:"stream_coverage"`
+	ActiveDays     int        `json:"active_days"`
+	ActiveWeeks    int        `json:"active_weeks"`
+	LastActivity   *time.Time `json:"last_activity,omitempty"`
+	Confidence     string     `json:"confidence"`
+}
+
+type ViewerRatingStatus struct {
+	Channel       string     `json:"channel"`
+	Status        string     `json:"status"`
+	CollectorUser string     `json:"collector_user,omitempty"`
+	LastEventAt   *time.Time `json:"last_event_at,omitempty"`
+	LastError     string     `json:"last_error,omitempty"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+type ViewerRating struct {
+	Channel             string               `json:"channel"`
+	Period              string               `json:"period"`
+	GeneratedAt         time.Time            `json:"generated_at"`
+	CollectionStartedAt *time.Time           `json:"collection_started_at,omitempty"`
+	StreamCount         int                  `json:"stream_count"`
+	ParticipantCount    int                  `json:"participant_count"`
+	Items               []ViewerRatingEntry  `json:"items"`
+	Me                  *ViewerRatingEntry   `json:"me,omitempty"`
+	Collectors          []ViewerRatingStatus `json:"collectors"`
+}
+
 func Can(role Role, action string) bool {
 	switch action {
 	case "view_feed", "open_video":

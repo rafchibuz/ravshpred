@@ -213,6 +213,11 @@ export function loadNotifications() {
   return request('/notifications?limit=100').then((payload) => (payload.data || []).map(normalizeNotification));
 }
 
+export function loadViewerRating(channel = 'all', period = '90d') {
+  const query = new URLSearchParams({ channel, period });
+  return request(`/rating?${query}`).then((payload) => payload.data);
+}
+
 export function createUnbanAppeal(input) {
   return request('/unban-appeals', { method: 'POST', body: input }).then((payload) => payload.data);
 }

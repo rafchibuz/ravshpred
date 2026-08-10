@@ -13,6 +13,7 @@ import (
 	"github.com/ravshann/predlozhka/backend/internal/config"
 	"github.com/ravshann/predlozhka/backend/internal/httpapi"
 	"github.com/ravshann/predlozhka/backend/internal/store/postgres"
+	"github.com/ravshann/predlozhka/backend/internal/twitch"
 	"github.com/ravshann/predlozhka/backend/internal/youtube"
 )
 
@@ -37,6 +38,8 @@ func main() {
 	if cfg.YouTubeAPIKey != "" {
 		go refreshYouTubeMetadata(ctx, database, youtubeClient, logger)
 	}
+	ratingCollector := twitch.NewRatingCollector(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchChatAccessToken, cfg.TwitchChatRefreshToken, database, logger)
+	go ratingCollector.Run(ctx)
 	api := httpapi.New(cfg, database, youtubeClient, logger)
 	api.StartClipCacheWarmer(ctx)
 	server := &http.Server{

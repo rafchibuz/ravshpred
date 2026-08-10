@@ -192,6 +192,8 @@ type Store interface {
 	TwitchVideoByID(context.Context, string) (twitch.Video, error)
 	TwitchCacheStatuses(context.Context) ([]TwitchCacheStatus, error)
 	TwitchCacheStatus(context.Context, string) (TwitchCacheStatus, error)
+	ViewerRating(context.Context, []string, *time.Time, string, int) (domain.ViewerRating, error)
+	SaveRatingCredentials(context.Context, twitch.RatingCredentials) error
 
 	SessionByTokenHash(context.Context, []byte) (Session, error)
 	CreateSession(context.Context, string, []byte, []byte, time.Time) error
