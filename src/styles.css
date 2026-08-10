@@ -587,11 +587,10 @@
 .streamer-about-copy .panel-kicker { color: #bb7bff; }
 .streamer-about-copy h2 { margin: 10px 0 18px; font-size: clamp(31px,4vw,54px); line-height: .96; letter-spacing: -.06em; }
 .streamer-about-copy p { max-width: 590px; margin: 0; color: #c3bdc7; font-size: clamp(12px,1.15vw,15px); line-height: 1.75; }
-.streamer-about-portraits { min-width: 0; position: relative; overflow: hidden; }
-.streamer-about-portraits::before { content: ''; position: absolute; z-index: 2; inset: 0; background: linear-gradient(90deg,#151119 0,transparent 24%),linear-gradient(0deg,rgba(14,11,16,.48),transparent 34%); pointer-events: none; }
+.streamer-about-portraits { min-width: 0; position: relative; overflow: hidden; background: radial-gradient(circle at 54% 36%,rgba(190,94,255,.34),transparent 38%),radial-gradient(circle at 50% 108%,rgba(116,48,184,.55),transparent 45%),linear-gradient(145deg,#32134e,#170d27 72%); }
+.streamer-about-portraits::before { content: ''; position: absolute; z-index: 2; inset: 0; background: linear-gradient(90deg,#151119 0,transparent 20%),linear-gradient(0deg,rgba(13,8,19,.32),transparent 28%); pointer-events: none; }
 .streamer-about-portraits img { position: absolute; display: block; object-fit: cover; object-position: 50% 44%; }
-.about-photo-main { inset: 0 auto 0 0; width: 50%; height: 100%; }
-.about-photo-secondary { inset: 0 0 0 auto; width: 50%; height: 100%; object-position: 50% 38%; filter: saturate(.92); }
+.about-photo-main { inset: 8px 0 0; width: 100%; height: calc(100% - 8px); object-fit: contain !important; object-position: 50% 100% !important; filter: drop-shadow(0 24px 28px rgba(0,0,0,.32)); }
 .streamer-partners { display: grid; grid-template-rows: auto minmax(0,1fr); padding: 20px; background: radial-gradient(circle at 90% 0,rgba(68,91,235,.14),transparent 33%),#17151a; }
 .streamer-partners > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
 .streamer-partners h2 { margin: 6px 0 0; font-size: clamp(21px,2.2vw,29px); letter-spacing: -.045em; }
@@ -694,7 +693,7 @@ body.modal-open { overflow: hidden; }
 @media (max-width: 640px) {
   .streamer-about-story { min-height: 0; grid-template-columns: 1fr; }
   .streamer-about-portraits { height: 360px; grid-row: 1; }
-  .streamer-about-portraits::before { background: linear-gradient(0deg,#17121b 0,transparent 30%); }
+  .streamer-about-portraits::before { background: linear-gradient(0deg,#17121b 0,transparent 25%); }
   .streamer-about-copy { grid-row: 2; padding: 22px 17px 25px; }
   .streamer-about-copy h2 { font-size: 34px; }
   .streamer-about-copy p { font-size: 12px; line-height: 1.65; }

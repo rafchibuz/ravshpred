@@ -62,8 +62,7 @@ import donationAlertsIcon from '../assets/social/donation-alerts.svg';
 import donatePayIcon from '../assets/social/donatepay.png';
 import memeAlertsIcon from '../assets/social/memealerts.png';
 import yandexMusicIcon from '../assets/social/yandex-music.png';
-import ravshanBalancePhoto from '../assets/about/ravshan-balance.jpg';
-import ravshanEnergyPhoto from '../assets/about/ravshan-energy.jpg';
+import ravshanCutout from '../assets/about/ravshan-cutout.png';
 import betboomBanner from '../assets/about/betboom.png';
 import majesticBanner from '../assets/about/majestic.png';
 import litEnergyBanner from '../assets/about/lit-energy.png';
@@ -832,8 +831,7 @@ function StreamerAbout() {
           <p>Я Равшан Джульпаев - человек загадочной национальности, проживающий не на территории России, 3-ех кратный чемпион мира по профессиональным вертушкам, преподает детям вертушки, в свободное время стримит, закидывает снюс и ведет разговоры со своей собакой, которую зовут Джордан.</p>
         </div>
         <div className="streamer-about-portraits" aria-hidden="true">
-          <img className="about-photo-main" src={ravshanBalancePhoto} alt="" />
-          <img className="about-photo-secondary" src={ravshanEnergyPhoto} alt="" />
+          <img className="about-photo-main" src={ravshanCutout} alt="" />
         </div>
       </div>
       <aside className="streamer-partners" aria-label="Партнёры Равшана">
