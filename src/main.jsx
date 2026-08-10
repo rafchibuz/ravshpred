@@ -65,6 +65,7 @@ import yandexMusicIcon from '../assets/social/yandex-music.png';
 
 const STORAGE_KEY = 'ravshann-predlozhka-local-v3';
 const MODERATION_POLL_INTERVAL = 15000;
+const TWITCH_CLIP_POLL_INTERVAL = 120000;
 const ROLE_LABELS = {
   guest: 'Гость',
   user: 'Пользователь',
@@ -948,11 +949,16 @@ function StreamClipsStrip({ streamer, navigate }) {
   const clipsRowRef = useRef(null);
   useEffect(() => {
     let active = true;
-    api.loadTwitchClips({ channel: 'all', period: 'week' })
-      .then((items) => { if (active) setClips(items); })
-      .catch(() => {})
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    const refresh = (initial = false) => {
+      if (!initial && document.hidden) return;
+      api.loadTwitchClips({ channel: 'all', period: 'week' })
+        .then((items) => { if (active) setClips(items); })
+        .catch(() => {})
+        .finally(() => { if (active && initial) setLoading(false); });
+    };
+    refresh(true);
+    const timer = window.setInterval(() => refresh(false), TWITCH_CLIP_POLL_INTERVAL);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
   const streamClips = useMemo(() => {
     let items = latestTwitchStreamClips(clips, channel)
@@ -1032,11 +1038,17 @@ function TwitchClipsView() {
     let active = true;
     setLoading(true);
     setError('');
-    api.loadTwitchClips(filters)
-      .then((items) => { if (active) setClips(items); })
-      .catch((requestError) => { if (active) setError(requestError.message); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    const refresh = (initial = false) => {
+      if (!initial && document.hidden) return;
+      api.loadTwitchClips(filters)
+        .then((items) => { if (active) { setClips(items); setError(''); } })
+        .catch((requestError) => { if (active) setError(requestError.message); })
+        .finally(() => { if (active && initial) setLoading(false); });
+    };
+    refresh(true);
+    const shouldPoll = filters.period === 'today' || filters.period === 'week' || filters.period === 'last_stream';
+    const timer = shouldPoll ? window.setInterval(() => refresh(false), TWITCH_CLIP_POLL_INTERVAL) : null;
+    return () => { active = false; if (timer) window.clearInterval(timer); };
   }, [filters]);
 
   const visibleClips = useMemo(() => {

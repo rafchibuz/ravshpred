@@ -313,7 +313,7 @@ func (s *Server) StartClipCacheWarmer(ctx context.Context) {
 			s.refreshTwitchCache(ctx, false)
 		}
 		warm()
-		ticker := time.NewTicker(10 * time.Minute)
+		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
