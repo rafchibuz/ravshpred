@@ -62,6 +62,11 @@ import donationAlertsIcon from '../assets/social/donation-alerts.svg';
 import donatePayIcon from '../assets/social/donatepay.png';
 import memeAlertsIcon from '../assets/social/memealerts.png';
 import yandexMusicIcon from '../assets/social/yandex-music.png';
+import ravshanBalancePhoto from '../assets/about/ravshan-balance.jpg';
+import ravshanEnergyPhoto from '../assets/about/ravshan-energy.jpg';
+import betboomBanner from '../assets/about/betboom.png';
+import majesticBanner from '../assets/about/majestic.png';
+import litEnergyBanner from '../assets/about/lit-energy.png';
 
 const STORAGE_KEY = 'ravshann-predlozhka-local-v3';
 const MODERATION_POLL_INTERVAL = 15000;
@@ -811,6 +816,42 @@ function LinkDirectory({ title, links, compact = false }) {
   );
 }
 
+const PARTNER_BANNERS = [
+  { name: 'BetBoom', image: betboomBanner, url: 'https://betboom.ru/sport' },
+  { name: 'Majestic RP', image: majesticBanner, url: 'https://majestic-rp.ru/' },
+  { name: 'LIT Energy', image: litEnergyBanner, url: 'https://litenergy.ru/new' },
+];
+
+function StreamerAbout() {
+  return (
+    <section className="streamer-about" aria-labelledby="streamer-about-title">
+      <div className="streamer-about-story">
+        <div className="streamer-about-copy">
+          <span className="panel-kicker">О СТРИМЕРЕ</span>
+          <h2 id="streamer-about-title">Равшан Джульпаев</h2>
+          <p>Я Равшан Джульпаев - человек загадочной национальности, проживающий не на территории России, 3-ех кратный чемпион мира по профессиональным вертушкам, преподает детям вертушки, в свободное время стримит, закидывает снюс и ведет разговоры со своей собакой, которую зовут Джордан.</p>
+          <div className="streamer-about-tags"><span>3× чемпион мира</span><span>стримы каждый день</span><span>Джордан — лучший друг</span></div>
+        </div>
+        <div className="streamer-about-portraits" aria-hidden="true">
+          <img className="about-photo-main" src={ravshanBalancePhoto} alt="" />
+          <img className="about-photo-secondary" src={ravshanEnergyPhoto} alt="" />
+        </div>
+      </div>
+      <aside className="streamer-partners" aria-label="Партнёры Равшана">
+        <header><div><span className="panel-kicker">ПАРТНЁРЫ</span><h2>Поддерживают эфиры</h2></div><small>Реклама · 18+</small></header>
+        <div className="partner-banner-grid">
+          {PARTNER_BANNERS.map((partner) => (
+            <a key={partner.name} href={partner.url} target="_blank" rel="noreferrer sponsored" aria-label={`Перейти на сайт ${partner.name}`}>
+              <img src={partner.image} alt={`Партнёрский баннер ${partner.name}`} />
+              <span>{partner.name}<ArrowUpRight size={14} /></span>
+            </a>
+          ))}
+        </div>
+      </aside>
+    </section>
+  );
+}
+
 function StreamerHome({ streamer, navigate }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -874,6 +915,7 @@ function StreamerHome({ streamer, navigate }) {
         </div>
       </div>}
       </section>
+      <StreamerAbout />
       <StreamClipsStrip streamer={streamer} navigate={navigate} />
       <HomeVodsStrip navigate={navigate} />
       <LinkDirectory title="Основные соцсети" links={primaryLinks} />
