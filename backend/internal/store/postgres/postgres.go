@@ -518,7 +518,7 @@ func (s *Store) Vote(ctx context.Context, submissionID, userID string, value int
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(value),0) FROM votes WHERE submission_id::text=$1`, submissionID).Scan(&rating); err != nil {
 		return 0, 0, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'vote','submission',$2,jsonb_build_object('value',$3))`, userID, submissionID, current); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'vote','submission',$2,jsonb_build_object('value',$3::integer))`, userID, submissionID, current); err != nil {
 		return 0, 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
