@@ -461,9 +461,9 @@ function Avatar({ small = false, src = '', name = '' }) {
 
 function Logo() {
   return (
-    <div className="logo" aria-label="RAVSHANN Предложка">
+    <div className="logo" aria-label="RAVSHANN Сообщество">
       <span>RAVSHANN</span>
-      <small>ПРЕДЛОЖКА</small>
+      <small>СООБЩЕСТВО</small>
     </div>
   );
 }
@@ -472,7 +472,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
   const [mobileOpen, setMobileOpen] = useState(false);
   const nav = [
     { key: 'home', label: 'Главная', icon: Home },
-    { key: 'feed', label: 'Предложка', icon: Play },
+    { key: 'community', label: 'Сообщество', icon: Play },
     { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
     { key: 'vods', label: 'Записи стримов', icon: VideoIcon },
     { key: 'rating', label: 'РЕЙТИНГ', icon: Trophy },
@@ -489,7 +489,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
     ...(can(role, 'manage') ? [{ key: 'owner', label: 'Управление', icon: Settings }] : []),
   ];
 
-  const primaryKeys = new Set(['home', 'feed', 'clips', 'news', 'submit']);
+  const primaryKeys = new Set(['home', 'community', 'clips', 'news', 'submit']);
   const go = (key) => {
     navigate(key);
     setMobileOpen(false);
@@ -545,7 +545,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
 function SiteFooter({ navigate }) {
   return (
     <footer className="site-footer">
-      <span>© {new Date().getFullYear()} RAVSHANN Предложка</span>
+      <span>© {new Date().getFullYear()} RAVSHANN Сообщество</span>
       <nav aria-label="Служебные страницы">
         <button onClick={() => navigate('rules')}>Правила</button>
         <button onClick={() => navigate('privacy')}>Конфиденциальность</button>
@@ -1380,7 +1380,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
           <div className="eyebrow">
             <span className="live-dot" /> ПУБЛИЧНАЯ ЛЕНТА
           </div>
-          <h1>Предложка Равшана</h1>
+          <h1>Сообщество Равшана</h1>
           <p>Предложенные видео сообщества — по умолчанию показаны только одобренные</p>
         </div>
         <div className="heading-actions">
@@ -1786,7 +1786,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
       <main className="main-content narrow">
         <section className="page-heading">
           <div><div className="eyebrow">НОВОЕ ПРЕДЛОЖЕНИЕ</div><h1>Что хотите предложить?</h1><p>Выберите раздел — дальше откроются только нужные поля.</p></div>
-          <button className="ghost-btn" onClick={() => navigate('feed')}>Назад в предложку</button>
+          <button className="ghost-btn" onClick={() => navigate('community')}>Назад в сообщество</button>
         </section>
         <section className="submission-kind-picker">
           <button className="submission-kind-card" onClick={() => setContentKind('video')}>
@@ -1813,7 +1813,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
             <button className="primary-btn" onClick={() => navigate('profile')}>
               Открыть профиль <ArrowUpRight size={15} />
             </button>
-            <button className="ghost-btn" onClick={() => navigate('feed')}>Вернуться в ленту</button>
+            <button className="ghost-btn" onClick={() => navigate('community')}>Вернуться в ленту</button>
           </div>
         </div>
       </main>
@@ -1826,9 +1826,9 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
         <div>
           <div className="eyebrow">НОВАЯ ОТПРАВКА</div>
           <h1>{isIdea ? 'Предложить идею для стрима' : 'Предложить видео'}</h1>
-          <p>{isIdea ? 'Опишите идею — пользователи смогут увидеть и оценить её в предложке' : 'Выберите источник, категорию и прикрепите ссылку'}</p>
+          <p>{isIdea ? 'Опишите идею — пользователи смогут увидеть и оценить её в сообществе' : 'Выберите источник, категорию и прикрепите ссылку'}</p>
         </div>
-        <button className="ghost-btn" onClick={() => navigate('feed')}>Назад к ленте</button>
+        <button className="ghost-btn" onClick={() => navigate('community')}>Назад к ленте</button>
       </section>
       <form className="submit-layout" onSubmit={submit}>
         <section className="panel form-panel">
@@ -3169,7 +3169,7 @@ function App() {
   else if (route === 'vods') page = <TwitchVodsView navigate={navigate} />;
   else if (route === 'rating') page = <ViewerRatingView actor={sessionUser} role={role} onLogin={openAuth} />;
   else if (route.startsWith('vod/')) page = <TwitchVodView videoId={route.slice(4)} navigate={navigate} />;
-  else if (route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
+  else if (route === 'community' || route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
   else if (route === 'unban') page = can(role, 'view_profile') ? <UnbanAppealsView actor={actor} notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route === 'submit') page = can(role, 'submit') ? <SubmitView state={state} actor={actor} navigate={navigate} notify={notify} onSubmit={submitVideo} /> : <AccessDenied role={role} onAccess={openAuth} />;
