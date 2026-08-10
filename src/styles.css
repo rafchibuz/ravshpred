@@ -581,14 +581,14 @@
 .vod-no-clips { min-height: 180px; }
 .streamer-about { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(390px, .9fr); align-items: stretch; gap: 14px; margin-top: 14px; }
 .streamer-about-story, .streamer-partners { min-width: 0; overflow: hidden; border: 1px solid #342d39; border-radius: 14px; background: #17151a; }
-.streamer-about-story { min-height: 430px; display: grid; grid-template-columns: minmax(330px, .95fr) minmax(300px, 1.05fr); position: relative; isolation: isolate; background: radial-gradient(circle at 13% 14%, rgba(154,72,255,.2), transparent 37%), linear-gradient(135deg,#1a1520,#111015 67%); }
+.streamer-about-story { min-height: 430px; display: grid; grid-template-columns: minmax(330px, .95fr) minmax(300px, 1.05fr); position: relative; isolation: isolate; background: radial-gradient(circle at 78% 38%,rgba(164,70,235,.22),transparent 38%),radial-gradient(circle at 13% 14%,rgba(154,72,255,.18),transparent 37%),linear-gradient(120deg,#1a1520 0%,#21102f 54%,#170d27 100%); }
 .streamer-about-story::after { content: ''; position: absolute; z-index: -1; inset: auto 0 0; height: 42%; background: linear-gradient(0deg,rgba(8,7,10,.78),transparent); pointer-events: none; }
 .streamer-about-copy { z-index: 2; align-self: center; padding: clamp(25px,3vw,44px); }
 .streamer-about-copy .panel-kicker { color: #bb7bff; }
 .streamer-about-copy h2 { margin: 10px 0 18px; font-size: clamp(31px,4vw,54px); line-height: .96; letter-spacing: -.06em; }
 .streamer-about-copy p { max-width: 590px; margin: 0; color: #c3bdc7; font-size: clamp(12px,1.15vw,15px); line-height: 1.75; }
-.streamer-about-portraits { min-width: 0; position: relative; overflow: hidden; background: radial-gradient(circle at 54% 36%,rgba(190,94,255,.34),transparent 38%),radial-gradient(circle at 50% 108%,rgba(116,48,184,.55),transparent 45%),linear-gradient(145deg,#32134e,#170d27 72%); }
-.streamer-about-portraits::before { content: ''; position: absolute; z-index: 2; inset: 0; background: linear-gradient(90deg,#151119 0,transparent 20%),linear-gradient(0deg,rgba(13,8,19,.32),transparent 28%); pointer-events: none; }
+.streamer-about-portraits { min-width: 0; position: relative; overflow: hidden; background: radial-gradient(circle at 54% 36%,rgba(190,94,255,.3),transparent 42%),radial-gradient(circle at 50% 108%,rgba(116,48,184,.42),transparent 48%); }
+.streamer-about-portraits::before { content: ''; position: absolute; z-index: 2; inset: 0; background: linear-gradient(0deg,rgba(13,8,19,.28),transparent 28%); pointer-events: none; }
 .streamer-about-portraits img { position: absolute; display: block; object-fit: cover; object-position: 50% 44%; }
 .about-photo-main { inset: 8px 0 0; width: 100%; height: calc(100% - 8px); object-fit: contain !important; object-position: 50% 100% !important; filter: drop-shadow(0 24px 28px rgba(0,0,0,.32)); }
 .streamer-partners { display: grid; grid-template-rows: auto minmax(0,1fr); padding: 20px; background: radial-gradient(circle at 90% 0,rgba(68,91,235,.14),transparent 33%),#17151a; }
