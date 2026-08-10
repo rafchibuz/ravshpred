@@ -148,6 +148,13 @@ type GlobalSettings struct {
 	Socials              SocialLinks  `json:"socials"`
 	SocialItems          []SocialItem `json:"social_links"`
 	SupportItems         []SocialItem `json:"support_links"`
+	PartnerLinks         PartnerLinks `json:"partner_links"`
+}
+
+type PartnerLinks struct {
+	BetBoom   string `json:"betboom"`
+	Majestic  string `json:"majestic"`
+	LitEnergy string `json:"lit_energy"`
 }
 
 type SocialItem struct {
@@ -177,6 +184,7 @@ type StreamerStatus struct {
 	Socials      SocialLinks  `json:"socials"`
 	SocialItems  []SocialItem `json:"social_links"`
 	SupportItems []SocialItem `json:"support_links"`
+	PartnerLinks PartnerLinks `json:"partner_links"`
 }
 
 type UserStats struct {

@@ -425,6 +425,10 @@
 .site-links-settings-summary p { margin-bottom: 0; }
 .site-links-settings-summary > span { grid-column: 2; grid-row: 1; color: #a76ee0; font-size: 9px; }
 .site-links-settings-summary > button { grid-column: 1 / -1; width: fit-content; display: inline-flex; align-items: center; gap: 7px; }
+.partner-links-settings { margin: 14px 0; padding: 15px; border: 1px solid #3a3241; border-radius: 9px; background: #17141b; }
+.partner-links-settings > div h3 { margin: 0; }
+.partner-links-settings > div p { margin-bottom: 13px; }
+.partner-links-settings label { margin-top: 9px; }
 .site-links-backdrop { z-index: 1100; }
 .site-links-modal { position: relative; width: min(1120px, 96vw); max-height: calc(100vh - 36px); display: grid; grid-template-rows: auto auto minmax(180px, 1fr) auto; overflow: hidden; border: 1px solid #4a4057; border-radius: 14px; background: radial-gradient(circle at 90% 0, rgba(152,72,255,.13), transparent 30%), #151319; box-shadow: 0 28px 90px rgba(0,0,0,.7); }
 .site-links-modal > header { padding: 24px 26px 17px; }

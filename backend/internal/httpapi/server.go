@@ -478,7 +478,7 @@ func (s *Server) streamer(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	result := domain.StreamerStatus{Login: "ravshann", DisplayName: "RavshanN", Socials: settings.Socials, SocialItems: settings.SocialItems, SupportItems: settings.SupportItems}
+	result := domain.StreamerStatus{Login: "ravshann", DisplayName: "RavshanN", Socials: settings.Socials, SocialItems: settings.SocialItems, SupportItems: settings.SupportItems, PartnerLinks: settings.PartnerLinks}
 	if !s.twitch.Configured() {
 		s.streamerCache, s.streamerCacheUntil = result, time.Now().Add(time.Minute)
 		writeJSON(w, http.StatusOK, map[string]any{"data": result})
@@ -1441,6 +1441,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	if input.SubmissionDailyLimit < 1 || input.SubmissionDailyLimit > 20 ||
 		input.CommentLimit < 100 || input.CommentLimit > 2000 ||
 		!validSocials || !validSupport ||
+		!validOptionalURL(input.PartnerLinks.BetBoom) || !validOptionalURL(input.PartnerLinks.Majestic) || !validOptionalURL(input.PartnerLinks.LitEnergy) ||
 		!validOptionalURL(input.Socials.Twitch) || !validOptionalURL(input.Socials.YouTube) ||
 		!validOptionalURL(input.Socials.Telegram) || !validOptionalURL(input.Socials.VK) {
 		writeError(w, http.StatusBadRequest, "invalid_settings", "Настройки вне допустимого диапазона")

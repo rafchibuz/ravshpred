@@ -165,7 +165,7 @@ function makeInitialState() {
   return {
     categories: ['Без категории', 'Смешное', 'Трейлеры', 'Фильмы и сериалы', 'Разоблачения'],
     moderators: ['moderator_live', 'lexapro_tv', 'shadowmff'],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [], supportLinks: [], siteLinks: [] },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [], supportLinks: [], partnerLinks: {}, siteLinks: [] },
     streamer: null,
     userStats: [],
     videos: [
@@ -400,7 +400,7 @@ function emptyServerState() {
     news: [],
     audit: [],
     auditRecords: [],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [], supportLinks: [], siteLinks: [] },
+    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [], supportLinks: [], partnerLinks: {}, siteLinks: [] },
     streamer: null,
     userStats: [],
   };
@@ -816,12 +816,12 @@ function LinkDirectory({ title, links, compact = false }) {
 }
 
 const PARTNER_BANNERS = [
-  { name: 'BetBoom', image: betboomBanner, url: 'https://betboom.ru/sport' },
-  { name: 'Majestic RP', image: majesticBanner, url: 'https://majestic-rp.ru/' },
-  { name: 'LIT Energy', image: litEnergyBanner, url: 'https://litenergy.ru/new' },
+  { key: 'betboom', name: 'BetBoom', image: betboomBanner, url: 'https://betboom.ru/sport' },
+  { key: 'majestic', name: 'Majestic RP', image: majesticBanner, url: 'https://majestic-rp.ru/' },
+  { key: 'lit_energy', name: 'LIT Energy', image: litEnergyBanner, url: 'https://litenergy.ru/new' },
 ];
 
-function StreamerAbout() {
+function StreamerAbout({ partnerLinks = {} }) {
   return (
     <section className="streamer-about" aria-labelledby="streamer-about-title">
       <div className="streamer-about-story">
@@ -838,7 +838,7 @@ function StreamerAbout() {
         <header><div><span className="panel-kicker">ПАРТНЁРЫ</span><h2>Поддерживают эфиры</h2></div><small>Реклама · 18+</small></header>
         <div className="partner-banner-grid">
           {PARTNER_BANNERS.map((partner) => (
-            <a key={partner.name} href={partner.url} target="_blank" rel="noreferrer sponsored" aria-label={`Перейти на сайт ${partner.name}`}>
+            <a key={partner.name} href={partnerLinks[partner.key] || partner.url} target="_blank" rel="noreferrer sponsored" aria-label={`Перейти на сайт ${partner.name}`}>
               <img src={partner.image} alt={`Партнёрский баннер ${partner.name}`} />
               <span>{partner.name}<ArrowUpRight size={14} /></span>
             </a>
@@ -912,7 +912,7 @@ function StreamerHome({ streamer, navigate }) {
         </div>
       </div>}
       </section>
-      <StreamerAbout />
+      <StreamerAbout partnerLinks={streamer.partner_links} />
       <StreamClipsStrip streamer={streamer} navigate={navigate} />
       <HomeVodsStrip navigate={navigate} />
       <LinkDirectory title="Основные соцсети" links={primaryLinks} />
@@ -2697,6 +2697,26 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
             <input type="checkbox" checked={Boolean(settings.allowSelfVote)} onChange={(event) => setSettings({ ...settings, allowSelfVote: event.target.checked })} />
             Разрешить голосовать за собственные видео
           </label>
+          <div className="partner-links-settings">
+            <div>
+              <h3>Ссылки партнёрских баннеров</h3>
+              <p className="settings-help">Изображения останутся прежними — меняются только адреса перехода.</p>
+            </div>
+            {PARTNER_BANNERS.map((partner) => (
+              <label key={partner.key}>
+                {partner.name}
+                <input
+                  type="url"
+                  placeholder={partner.url}
+                  value={settings.partnerLinks?.[partner.key] || ''}
+                  onChange={(event) => setSettings({
+                    ...settings,
+                    partnerLinks: { ...(settings.partnerLinks || {}), [partner.key]: event.target.value },
+                  })}
+                />
+              </label>
+            ))}
+          </div>
           <div className="site-links-settings-summary"><div><h3>Ссылки на главной</h3><p className="settings-help">Все разделы, плашки, порядок и иконки открываются в отдельном удобном окне.</p></div><span>{(settings.siteLinks || []).length} плашек</span><button type="button" className="outline-btn" onClick={() => setLinksEditorOpen(true)}><Settings size={15} /> Открыть редактор</button></div>
           <div className="twitch-cache-settings"><div><h3>Кэш Twitch</h3><p>{twitchCache?.refreshing || twitchCacheRefreshing ? 'Фоновое обновление выполняется' : twitchCacheAge(twitchCache)}</p></div><button type="button" className="outline-btn" disabled={twitchCache?.refreshing || twitchCacheRefreshing} onClick={async () => { try { setTwitchCacheRefreshing(true); await api.refreshTwitchCache(); setTwitchCache((current) => ({ ...(current || {}), refreshing: true })); notify('Обновление Twitch запущено в фоне'); window.setTimeout(async () => { try { setTwitchCache(await api.loadTwitchCacheStatus()); } finally { setTwitchCacheRefreshing(false); } }, 5000); } catch (error) { setTwitchCacheRefreshing(false); notify(error.message); } }}><Clock3 size={14} /> Обновить сейчас</button></div>
           <button
@@ -3154,6 +3174,7 @@ function App() {
         ...current.streamer,
         social_links: siteLinks.filter((item) => item.section !== 'support'),
         support_links: siteLinks.filter((item) => item.section === 'support'),
+        partner_links: settings.partnerLinks || {},
       } : current.streamer,
     }));
   };

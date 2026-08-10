@@ -194,6 +194,7 @@ export async function loadWorkspace(role) {
       socials: legacySocials,
       socialLinks,
       supportLinks,
+      partnerLinks: settings.data.partner_links || {},
       siteLinks: [...socialLinks, ...supportLinks],
     };
   }
@@ -383,6 +384,7 @@ export function updateSettings(settings) {
       socials: settings.socials || {},
       social_links: siteLinks.filter((item) => item.section !== 'support'),
       support_links: siteLinks.filter((item) => item.section === 'support'),
+      partner_links: settings.partnerLinks || {},
     },
   });
 }

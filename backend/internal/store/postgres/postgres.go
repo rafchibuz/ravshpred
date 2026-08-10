@@ -1380,6 +1380,11 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 		AllowSelfVote:        false,
 		Socials:              domain.SocialLinks{Twitch: "https://www.twitch.tv/ravshann"},
 		SocialItems:          []domain.SocialItem{{Name: "Twitch", URL: "https://www.twitch.tv/ravshann"}},
+		PartnerLinks: domain.PartnerLinks{
+			BetBoom:   "https://betboom.ru/sport",
+			Majestic:  "https://majestic-rp.ru/",
+			LitEnergy: "https://litenergy.ru/new",
+		},
 	}
 	var hasSocialItems bool
 	rows, err := s.pool.Query(ctx, `SELECT key,value::text FROM system_settings`)
@@ -1415,6 +1420,8 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 			}
 		case "support_links":
 			_ = json.Unmarshal([]byte(value), &result.SupportItems)
+		case "partner_links":
+			_ = json.Unmarshal([]byte(value), &result.PartnerLinks)
 		}
 	}
 	if !hasSocialItems {
@@ -1453,6 +1460,7 @@ func (s *Store) UpdateSettings(ctx context.Context, settings domain.GlobalSettin
 		"social_vk":                settings.Socials.VK,
 		"social_links":             settings.SocialItems,
 		"support_links":            settings.SupportItems,
+		"partner_links":            settings.PartnerLinks,
 	}
 	for key, value := range values {
 		encoded, _ := json.Marshal(value)
