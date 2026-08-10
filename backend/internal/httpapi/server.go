@@ -126,12 +126,24 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 	var since *time.Time
 	now := time.Now().UTC()
 	switch period {
+	case "1d":
+		value := now.AddDate(0, 0, -1)
+		since = &value
+	case "7d":
+		value := now.AddDate(0, 0, -7)
+		since = &value
 	case "30d":
 		value := now.AddDate(0, 0, -30)
 		since = &value
-	case "90d", "":
-		period = "90d"
+	case "1y":
+		value := now.AddDate(-1, 0, 0)
+		since = &value
+	case "90d":
 		value := now.AddDate(0, 0, -90)
+		since = &value
+	case "":
+		period = "30d"
+		value := now.AddDate(0, 0, -30)
 		since = &value
 	case "all":
 	default:
