@@ -459,12 +459,12 @@ function Avatar({ small = false, src = '', name = '' }) {
   );
 }
 
-function Logo() {
+function Logo({ onClick }) {
   return (
-    <div className="logo" aria-label="RAVSHANN Сообщество">
+    <button type="button" className="logo" onClick={onClick} aria-label="Перейти на главную страницу">
       <span>RAVSHANN</span>
       <small>СООБЩЕСТВО</small>
-    </div>
+    </button>
   );
 }
 
@@ -512,7 +512,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
   return (
     <aside className={`sidebar ${collapsed ? 'is-collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
       <div className="sidebar-top">
-        <Logo />
+        <Logo onClick={() => go('home')} />
         <button className="sidebar-collapse" onClick={onToggle} aria-label={collapsed ? 'Раскрыть боковую панель' : 'Скрыть боковую панель'} title={collapsed ? 'Раскрыть меню' : 'Скрыть меню'}>
           <Menu size={17} />
         </button>
