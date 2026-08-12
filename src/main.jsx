@@ -2820,7 +2820,7 @@ function ViewerRatingView({ actor, role, onLogin }) {
 
     <section className="rating-controls panel">
       <div className="rating-filter"><span>Канал</span>{[['all', 'Общий'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
-      <div className="rating-filter"><span>Период</span>{[['1d', '1 день'], ['7d', '7 дней'], ['30d', '30 дней'], ['1y', '1 год']].map(([value, label]) => <button key={value} className={period === value ? 'selected' : ''} onClick={() => setPeriod(value)}>{label}</button>)}</div>
+      <div className="rating-filter"><span>Период</span>{[['last_stream', 'Прошлый стрим'], ['1d', '1 день'], ['7d', '7 дней'], ['30d', '30 дней'], ['1y', '1 год']].map(([value, label]) => <button key={value} className={period === value ? 'selected' : ''} onClick={() => setPeriod(value)}>{label}</button>)}</div>
       <div className="rating-summary"><b>{rating?.participant_count || 0}</b><span>участников</span><b>{rating?.stream_count || 0}</b><span>стримов</span></div>
     </section>
 

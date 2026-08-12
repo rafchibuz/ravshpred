@@ -7,7 +7,7 @@ import (
 	"github.com/ravshann/predlozhka/backend/internal/domain"
 )
 
-func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time.Time, meTwitchID string, limit int) (domain.ViewerRating, error) {
+func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time.Time, lastStream bool, meTwitchID string, limit int) (domain.ViewerRating, error) {
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
@@ -19,21 +19,33 @@ func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time
 	}
 
 	const statsSQL = `
+		WITH latest_completed AS (
+			SELECT channel_login, id FROM twitch_rating_streams
+			WHERE channel_login = ANY($1) AND observed_live AND ended_at IS NOT NULL
+			ORDER BY ended_at DESC, started_at DESC LIMIT 1
+		)
 		SELECT min(started_at), count(*)
-		FROM twitch_rating_streams
-		WHERE channel_login = ANY($1) AND started_at >= COALESCE($2::timestamptz, '-infinity'::timestamptz)
+		FROM twitch_rating_streams s
+		WHERE channel_login = ANY($1) AND observed_live
+		  AND started_at >= COALESCE($2::timestamptz, '-infinity'::timestamptz)
+		  AND (NOT $3 OR (s.channel_login, s.id) IN (SELECT channel_login, id FROM latest_completed))
 	`
-	if err := s.pool.QueryRow(ctx, statsSQL, channels, since).Scan(&result.CollectionStartedAt, &result.StreamCount); err != nil {
+	if err := s.pool.QueryRow(ctx, statsSQL, channels, since, lastStream).Scan(&result.CollectionStartedAt, &result.StreamCount); err != nil {
 		return domain.ViewerRating{}, err
 	}
 
 	const ratingSQL = `
-		WITH selected_streams AS (
-			SELECT channel_login, id, started_at
-			FROM twitch_rating_streams
-			WHERE channel_login = ANY($1)
+		WITH latest_completed AS (
+			SELECT channel_login, id FROM twitch_rating_streams
+			WHERE channel_login = ANY($1) AND observed_live AND ended_at IS NOT NULL
+			ORDER BY ended_at DESC, started_at DESC LIMIT 1
+		), selected_streams AS (
+			SELECT s.channel_login, s.id, s.started_at
+			FROM twitch_rating_streams s
+			WHERE s.channel_login = ANY($1)
 			  AND observed_live
-			  AND started_at >= COALESCE($2::timestamptz, '-infinity'::timestamptz)
+			  AND s.started_at >= COALESCE($2::timestamptz, '-infinity'::timestamptz)
+			  AND (NOT $3 OR (s.channel_login, s.id) IN (SELECT channel_login, id FROM latest_completed))
 		), qualifying AS (
 			SELECT m.*, m.channel_login || ':' || m.stream_id AS stream_key,
 			       floor(extract(epoch FROM m.sent_at) / 600)::bigint AS bucket
@@ -100,7 +112,7 @@ func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time
 		       coverage, active_days, active_weeks, last_activity, stream_count
 		FROM ranked ORDER BY rank
 	`
-	rows, err := s.pool.Query(ctx, ratingSQL, channels, since)
+	rows, err := s.pool.Query(ctx, ratingSQL, channels, since, lastStream)
 	if err != nil {
 		return domain.ViewerRating{}, err
 	}

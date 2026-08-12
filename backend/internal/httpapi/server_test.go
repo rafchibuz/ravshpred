@@ -60,7 +60,7 @@ func (s *stubStore) CreateNewsPost(_ context.Context, authorID, title, body stri
 func (s *stubStore) GetSettings(context.Context) (domain.GlobalSettings, error) {
 	return domain.GlobalSettings{SubmissionDailyLimit: 5, CommentLimit: 500}, nil
 }
-func (s *stubStore) ViewerRating(context.Context, []string, *time.Time, string, int) (domain.ViewerRating, error) {
+func (s *stubStore) ViewerRating(context.Context, []string, *time.Time, bool, string, int) (domain.ViewerRating, error) {
 	s.ratingCalls++
 	return s.rating, nil
 }

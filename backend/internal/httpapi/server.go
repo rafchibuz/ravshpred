@@ -121,14 +121,14 @@ func (s *Server) cachedViewerRating(ctx context.Context, key string, load func()
 func (s *Server) StartRatingCacheWarmer(ctx context.Context) {
 	go func() {
 		warm := func() {
-			for _, period := range []string{"1d", "7d", "30d", "1y"} {
+			for _, period := range []string{"last_stream", "1d", "7d", "30d", "1y"} {
 				if ctx.Err() != nil {
 					return
 				}
 				since := ratingSince(period, time.Now().UTC())
 				key := "all:" + period + ":public"
 				_, err := s.cachedViewerRating(ctx, key, func() (domain.ViewerRating, error) {
-					return s.store.ViewerRating(ctx, []string{"ravshann", "ravshanbtw"}, since, "", 100)
+					return s.store.ViewerRating(ctx, []string{"ravshann", "ravshanbtw"}, since, period == "last_stream", "", 100)
 				})
 				if err != nil && ctx.Err() == nil {
 					s.logger.Warn("rating cache warm failed", "period", period, "error", err)
@@ -237,7 +237,7 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 	period := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("period")))
 	now := time.Now().UTC()
 	switch period {
-	case "1d", "7d", "30d", "1y", "90d":
+	case "1d", "7d", "30d", "1y", "90d", "last_stream":
 	case "":
 		period = "30d"
 	case "all":
@@ -246,13 +246,14 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since := ratingSince(period, now)
+	lastStream := period == "last_stream"
 	meTwitchID := ""
 	if actor, err := s.actor(r); err == nil && actor != nil {
 		meTwitchID = actor.User.TwitchID
 	}
 	publicKey := channel + ":" + period + ":public"
 	result, err := s.cachedViewerRating(r.Context(), publicKey, func() (domain.ViewerRating, error) {
-		return s.store.ViewerRating(r.Context(), channels, since, "", 100)
+		return s.store.ViewerRating(r.Context(), channels, since, lastStream, "", 100)
 	})
 	if err == nil && meTwitchID != "" {
 		for index := range result.Items {
@@ -265,7 +266,7 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 		if result.Me == nil {
 			personalKey := channel + ":" + period + ":" + meTwitchID
 			result, err = s.cachedViewerRating(r.Context(), personalKey, func() (domain.ViewerRating, error) {
-				return s.store.ViewerRating(r.Context(), channels, since, meTwitchID, 100)
+				return s.store.ViewerRating(r.Context(), channels, since, lastStream, meTwitchID, 100)
 			})
 		}
 	}
