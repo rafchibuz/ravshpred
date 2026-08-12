@@ -34,6 +34,20 @@ type Server struct {
 	streamerCacheUntil time.Time
 	twitchRefreshMu    sync.Mutex
 	twitchRefreshing   bool
+	ratingMu           sync.Mutex
+	ratingCache        map[string]ratingCacheEntry
+	ratingFlights      map[string]*ratingFlight
+}
+
+type ratingCacheEntry struct {
+	value   domain.ViewerRating
+	expires time.Time
+}
+
+type ratingFlight struct {
+	done  chan struct{}
+	value domain.ViewerRating
+	err   error
 }
 
 type actorContext struct {
@@ -51,9 +65,107 @@ func New(cfg config.Config, database store.Store, youtubeClient youtube.Client, 
 	}
 	return &Server{
 		cfg: cfg, store: database, youtube: youtubeClient,
-		twitch: twitch.New(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchRedirectURL),
-		logger: logger,
+		twitch:      twitch.New(cfg.TwitchClientID, cfg.TwitchClientSecret, cfg.TwitchRedirectURL),
+		logger:      logger,
+		ratingCache: map[string]ratingCacheEntry{}, ratingFlights: map[string]*ratingFlight{},
 	}
+}
+
+const ratingCacheTTL = 2 * time.Minute
+
+func cloneViewerRating(value domain.ViewerRating) domain.ViewerRating {
+	copy := value
+	copy.Items = append([]domain.ViewerRatingEntry(nil), value.Items...)
+	copy.Collectors = append([]domain.ViewerRatingStatus(nil), value.Collectors...)
+	if value.Me != nil {
+		me := *value.Me
+		copy.Me = &me
+	}
+	return copy
+}
+
+func (s *Server) cachedViewerRating(ctx context.Context, key string, load func() (domain.ViewerRating, error)) (domain.ViewerRating, error) {
+	now := time.Now()
+	s.ratingMu.Lock()
+	if cached, ok := s.ratingCache[key]; ok && now.Before(cached.expires) {
+		value := cloneViewerRating(cached.value)
+		s.ratingMu.Unlock()
+		return value, nil
+	}
+	if flight, ok := s.ratingFlights[key]; ok {
+		s.ratingMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return domain.ViewerRating{}, ctx.Err()
+		case <-flight.done:
+			return cloneViewerRating(flight.value), flight.err
+		}
+	}
+	flight := &ratingFlight{done: make(chan struct{})}
+	s.ratingFlights[key] = flight
+	s.ratingMu.Unlock()
+
+	value, err := load()
+	s.ratingMu.Lock()
+	flight.value, flight.err = cloneViewerRating(value), err
+	if err == nil {
+		s.ratingCache[key] = ratingCacheEntry{value: cloneViewerRating(value), expires: time.Now().Add(ratingCacheTTL)}
+	}
+	delete(s.ratingFlights, key)
+	close(flight.done)
+	s.ratingMu.Unlock()
+	return value, err
+}
+
+// StartRatingCacheWarmer keeps the commonly viewed combined rating periods hot.
+func (s *Server) StartRatingCacheWarmer(ctx context.Context) {
+	go func() {
+		warm := func() {
+			for _, period := range []string{"1d", "7d", "30d", "1y"} {
+				if ctx.Err() != nil {
+					return
+				}
+				since := ratingSince(period, time.Now().UTC())
+				key := "all:" + period + ":public"
+				_, err := s.cachedViewerRating(ctx, key, func() (domain.ViewerRating, error) {
+					return s.store.ViewerRating(ctx, []string{"ravshann", "ravshanbtw"}, since, "", 100)
+				})
+				if err != nil && ctx.Err() == nil {
+					s.logger.Warn("rating cache warm failed", "period", period, "error", err)
+				}
+			}
+		}
+		warm()
+		ticker := time.NewTicker(90 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				warm()
+			}
+		}
+	}()
+}
+
+func ratingSince(period string, now time.Time) *time.Time {
+	var value time.Time
+	switch period {
+	case "1d":
+		value = now.AddDate(0, 0, -1)
+	case "7d":
+		value = now.AddDate(0, 0, -7)
+	case "30d":
+		value = now.AddDate(0, 0, -30)
+	case "90d":
+		value = now.AddDate(0, 0, -90)
+	case "1y":
+		value = now.AddDate(-1, 0, 0)
+	default:
+		return nil
+	}
+	return &value
 }
 
 func (s *Server) Handler() http.Handler {
@@ -123,38 +235,40 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 		channel = "all"
 	}
 	period := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("period")))
-	var since *time.Time
 	now := time.Now().UTC()
 	switch period {
-	case "1d":
-		value := now.AddDate(0, 0, -1)
-		since = &value
-	case "7d":
-		value := now.AddDate(0, 0, -7)
-		since = &value
-	case "30d":
-		value := now.AddDate(0, 0, -30)
-		since = &value
-	case "1y":
-		value := now.AddDate(-1, 0, 0)
-		since = &value
-	case "90d":
-		value := now.AddDate(0, 0, -90)
-		since = &value
+	case "1d", "7d", "30d", "1y", "90d":
 	case "":
 		period = "30d"
-		value := now.AddDate(0, 0, -30)
-		since = &value
 	case "all":
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_period", "Неизвестный период рейтинга")
 		return
 	}
+	since := ratingSince(period, now)
 	meTwitchID := ""
 	if actor, err := s.actor(r); err == nil && actor != nil {
 		meTwitchID = actor.User.TwitchID
 	}
-	result, err := s.store.ViewerRating(r.Context(), channels, since, meTwitchID, 100)
+	publicKey := channel + ":" + period + ":public"
+	result, err := s.cachedViewerRating(r.Context(), publicKey, func() (domain.ViewerRating, error) {
+		return s.store.ViewerRating(r.Context(), channels, since, "", 100)
+	})
+	if err == nil && meTwitchID != "" {
+		for index := range result.Items {
+			if result.Items[index].TwitchID == meTwitchID {
+				me := result.Items[index]
+				result.Me = &me
+				break
+			}
+		}
+		if result.Me == nil {
+			personalKey := channel + ":" + period + ":" + meTwitchID
+			result, err = s.cachedViewerRating(r.Context(), personalKey, func() (domain.ViewerRating, error) {
+				return s.store.ViewerRating(r.Context(), channels, since, meTwitchID, 100)
+			})
+		}
+	}
 	if err != nil {
 		s.logger.Error("viewer rating failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить рейтинг")

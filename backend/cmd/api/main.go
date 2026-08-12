@@ -42,6 +42,7 @@ func main() {
 	go ratingCollector.Run(ctx)
 	api := httpapi.New(cfg, database, youtubeClient, logger)
 	api.StartClipCacheWarmer(ctx)
+	api.StartRatingCacheWarmer(ctx)
 	server := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           api.Handler(),

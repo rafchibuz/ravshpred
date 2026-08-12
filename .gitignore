@@ -5,6 +5,7 @@ dist/
 tmp/
 .vite/
 .gocache/
+.cache/
 .env
 .env.*
 !.env.example

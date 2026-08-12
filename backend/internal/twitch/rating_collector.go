@@ -82,6 +82,7 @@ func (c *RatingCollector) Run(ctx context.Context) {
 		_ = c.store.SetRatingCollectorStatus(ctx, c.channels, "not_configured", "", "", nil)
 		return
 	}
+	go c.reconcileLoop(ctx)
 	for ctx.Err() == nil {
 		if err := c.runSession(ctx, eventSubWebSocketURL, true); err != nil && ctx.Err() == nil {
 			c.logger.Error("rating collector disconnected", "error", err)
@@ -97,6 +98,62 @@ func (c *RatingCollector) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// reconcileLoop is a safety net for EventSub. Twitch can deliver stream.online
+// while the collector is reconnecting; polling prevents the whole next stream
+// from being missed when that single notification is lost.
+func (c *RatingCollector) reconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := c.reconcileStreams(ctx); err != nil && ctx.Err() == nil {
+				c.logger.Warn("rating stream reconciliation failed", "error", err)
+			}
+		}
+	}
+}
+
+func (c *RatingCollector) reconcileStreams(ctx context.Context) error {
+	c.mu.Lock()
+	ready := c.credentials.AccessToken != "" && len(c.channelIDs) == len(c.channels)
+	ids := make(map[string]string, len(c.channelIDs))
+	for login, id := range c.channelIDs {
+		ids[login] = id
+	}
+	c.mu.Unlock()
+	if !ready {
+		return nil
+	}
+	for _, login := range c.channels {
+		_, live, err := c.streamByID(ctx, ids[login])
+		if err != nil {
+			return err
+		}
+		c.mu.Lock()
+		current := c.current[login]
+		if live != nil {
+			c.current[login] = live
+		} else {
+			delete(c.current, login)
+		}
+		c.mu.Unlock()
+		switch {
+		case live != nil:
+			if err := c.saveStream(ctx, login, live); err != nil {
+				return err
+			}
+		case current != nil:
+			if err := c.store.CloseRatingStreams(ctx, login, current.ID, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (c *RatingCollector) prepare(ctx context.Context) error {
@@ -135,13 +192,17 @@ func (c *RatingCollector) prepare(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		c.mu.Lock()
 		c.channelIDs[login] = user.ID
+		c.mu.Unlock()
 		_, stream, err := c.streamByID(ctx, user.ID)
 		if err != nil {
 			return err
 		}
 		if stream != nil {
+			c.mu.Lock()
 			c.current[login] = stream
+			c.mu.Unlock()
 			_ = c.saveStream(ctx, login, stream)
 		}
 	}
@@ -152,6 +213,17 @@ func (c *RatingCollector) runSession(ctx context.Context, endpoint string, subsc
 	if subscribe {
 		if err := c.prepare(ctx); err != nil {
 			return err
+		}
+		c.mu.Lock()
+		expiresAt := c.credentials.ExpiresAt
+		c.mu.Unlock()
+		if expiresAt != nil {
+			refreshAt := expiresAt.Add(-5 * time.Minute)
+			if refreshAt.After(time.Now()) {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, refreshAt)
+				defer cancel()
+			}
 		}
 	}
 	conn, _, err := websocket.Dial(ctx, endpoint, nil)
@@ -254,7 +326,10 @@ func (c *RatingCollector) helix(ctx context.Context, method, endpoint string, bo
 		return err
 	}
 	req.Header.Set("Client-Id", c.clientID)
-	req.Header.Set("Authorization", "Bearer "+c.credentials.AccessToken)
+	c.mu.Lock()
+	accessToken := c.credentials.AccessToken
+	c.mu.Unlock()
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -300,9 +375,12 @@ func (c *RatingCollector) streamByID(ctx context.Context, id string) (User, *Str
 func (c *RatingCollector) subscribe(ctx context.Context, sessionID string) error {
 	transport := map[string]string{"method": "websocket", "session_id": sessionID}
 	for _, login := range c.channels {
+		c.mu.Lock()
 		id := c.channelIDs[login]
+		userID := c.credentials.UserID
+		c.mu.Unlock()
 		subscriptions := []map[string]any{
-			{"type": "channel.chat.message", "version": "1", "condition": map[string]string{"broadcaster_user_id": id, "user_id": c.credentials.UserID}, "transport": transport},
+			{"type": "channel.chat.message", "version": "1", "condition": map[string]string{"broadcaster_user_id": id, "user_id": userID}, "transport": transport},
 			{"type": "stream.online", "version": "1", "condition": map[string]string{"broadcaster_user_id": id}, "transport": transport},
 			{"type": "stream.offline", "version": "1", "condition": map[string]string{"broadcaster_user_id": id}, "transport": transport},
 		}
@@ -352,7 +430,9 @@ func (c *RatingCollector) handleEvent(ctx context.Context, envelope eventSubEnve
 		if stream == nil {
 			stream = &Stream{ID: event.ID, UserLogin: login, StartedAt: event.StartedAt}
 		}
+		c.mu.Lock()
 		c.current[login] = stream
+		c.mu.Unlock()
 		return c.saveStream(ctx, login, stream)
 	case "stream.offline":
 		var event struct {
@@ -362,11 +442,13 @@ func (c *RatingCollector) handleEvent(ctx context.Context, envelope eventSubEnve
 			return err
 		}
 		login := c.loginByID(event.BroadcasterID)
+		c.mu.Lock()
 		streamID := ""
 		if stream := c.current[login]; stream != nil {
 			streamID = stream.ID
 		}
 		delete(c.current, login)
+		c.mu.Unlock()
 		return c.store.CloseRatingStreams(ctx, login, streamID, envelope.Metadata.MessageTimestamp)
 	case "channel.chat.message":
 		return c.saveMessage(ctx, envelope.Payload.Event, envelope.Metadata.MessageTimestamp)
@@ -378,6 +460,8 @@ func (c *RatingCollector) saveStream(ctx context.Context, login string, stream *
 	return c.store.UpsertRatingStream(ctx, RatingStream{ID: stream.ID, Channel: login, Title: stream.Title, GameName: stream.GameName, StartedAt: stream.StartedAt, ObservedLive: true})
 }
 func (c *RatingCollector) loginByID(id string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for login, candidate := range c.channelIDs {
 		if candidate == id {
 			return login
@@ -417,7 +501,9 @@ func (c *RatingCollector) saveMessage(ctx context.Context, raw json.RawMessage, 
 	if wire.SourceBroadcasterID != "" && wire.SourceBroadcasterID != wire.BroadcasterID {
 		return nil
 	}
+	c.mu.Lock()
 	stream := c.current[login]
+	c.mu.Unlock()
 	if stream == nil {
 		return nil
 	}

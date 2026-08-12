@@ -29,7 +29,7 @@ func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time
 
 	const ratingSQL = `
 		WITH selected_streams AS (
-			SELECT channel_login || ':' || id AS stream_key, started_at
+			SELECT channel_login, id, started_at
 			FROM twitch_rating_streams
 			WHERE channel_login = ANY($1)
 			  AND observed_live
@@ -38,7 +38,7 @@ func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time
 			SELECT m.*, m.channel_login || ':' || m.stream_id AS stream_key,
 			       floor(extract(epoch FROM m.sent_at) / 600)::bigint AS bucket
 			FROM twitch_rating_messages m
-			JOIN selected_streams s ON s.stream_key = m.channel_login || ':' || m.stream_id
+			JOIN selected_streams s ON s.channel_login = m.channel_login AND s.id = m.stream_id
 			WHERE m.channel_login = ANY($1)
 			  AND m.sent_at >= COALESCE($2::timestamptz, '-infinity'::timestamptz)
 			  AND NOT m.is_command AND NOT m.is_duplicate

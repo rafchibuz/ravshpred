@@ -27,6 +27,7 @@ type stubStore struct {
 	updatedInput *store.UpdateSubmissionContentInput
 	unbanInput   *store.CreateUnbanAppealInput
 	rating       domain.ViewerRating
+	ratingCalls  int
 }
 
 func (s *stubStore) Ping(context.Context) error { return nil }
@@ -60,6 +61,7 @@ func (s *stubStore) GetSettings(context.Context) (domain.GlobalSettings, error) 
 	return domain.GlobalSettings{SubmissionDailyLimit: 5, CommentLimit: 500}, nil
 }
 func (s *stubStore) ViewerRating(context.Context, []string, *time.Time, string, int) (domain.ViewerRating, error) {
+	s.ratingCalls++
 	return s.rating, nil
 }
 func (s *stubStore) CreateSubmission(_ context.Context, input store.CreateSubmissionInput) (domain.Video, error) {
@@ -103,6 +105,22 @@ func TestPublicHealthAndCategories(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("%s returned %d: %s", path, response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestViewerRatingUsesServerCache(t *testing.T) {
+	database := &stubStore{rating: domain.ViewerRating{ParticipantCount: 12}}
+	handler := testServer(database)
+	for range 2 {
+		request := httptest.NewRequest(http.MethodGet, "/api/rating?channel=all&period=1y", nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("rating returned %d: %s", response.Code, response.Body.String())
+		}
+	}
+	if database.ratingCalls != 1 {
+		t.Fatalf("rating calculated %d times, want 1", database.ratingCalls)
 	}
 }
 
