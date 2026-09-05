@@ -2763,8 +2763,8 @@ const RATING_ROLE_LABELS = {
   viewer: 'Зритель', vip: 'VIP', moderator: 'Модератор', broadcaster: 'Стример',
 };
 
-function RatingAvatar({ entry }) {
-  if (entry.avatar_url) return <img src={entry.avatar_url} alt="" referrerPolicy="no-referrer" />;
+function RatingAvatar({ entry, fallbackUrl = '' }) {
+  if (entry.avatar_url || fallbackUrl) return <img src={entry.avatar_url || fallbackUrl} alt="" referrerPolicy="no-referrer" />;
   return <span>{(entry.display_name || entry.login || '?')[0].toUpperCase()}</span>;
 }
 
@@ -2853,7 +2853,7 @@ function ViewerRatingView({ actor, role, onLogin }) {
 
     {!loading && leaders.length > 0 && <section className="rating-podium">
       {leaders.map((entry, index) => <article key={entry.twitch_id} className={`rating-leader place-${index + 1}`}>
-        <div className="rating-medal">#{entry.rank}</div><div className="rating-avatar"><RatingAvatar entry={entry} /></div>
+        <div className="rating-medal">#{entry.rank}</div><div className="rating-avatar"><RatingAvatar entry={entry} fallbackUrl={entry.twitch_id === actor?.twitch_id ? actor?.avatar_url : ''} /></div>
         <h2>{entry.display_name}</h2><span>@{entry.login}</span><strong>{entry.score}<small>/100</small></strong>
         <em>{RATING_ROLE_LABELS[entry.role] || 'Зритель'}</em>
       </article>)}
@@ -2861,7 +2861,7 @@ function ViewerRatingView({ actor, role, onLogin }) {
 
     {rating?.me && <section className="rating-me panel">
       <div className="rating-me-rank"><span>Ваше место</span><strong>#{rating.me.rank}</strong></div>
-      <div className="rating-me-user"><b>{rating.me.display_name}</b><small>@{rating.me.login}</small><i className={`rating-role role-${rating.me.role}`}>{RATING_ROLE_LABELS[rating.me.role] || 'Зритель'}</i></div>
+      <div className="rating-me-user"><div className="rating-avatar small"><RatingAvatar entry={rating.me} fallbackUrl={actor?.avatar_url || ''} /></div><span><b>{rating.me.display_name}</b><small>@{rating.me.login}</small><i className={`rating-role role-${rating.me.role}`}>{RATING_ROLE_LABELS[rating.me.role] || 'Зритель'}</i></span></div>
       <div className="rating-me-stats">
         <span><b>{rating.me.active_streams}<small> / {rating.stream_count}</small></b><em>Эфиры</em></span>
         <span><b>{rating.me.active_days}</b><em>Дни</em></span>
@@ -2876,7 +2876,7 @@ function ViewerRatingView({ actor, role, onLogin }) {
       <div className="rating-row rating-columns"><span>Место</span><span>Зритель</span><span>Роль</span><span>Эфиры</span><span>Дни</span><span>Сообщения</span><span>Баллы</span></div>
       {rating.items.map((entry) => <div className={`rating-row ${rating.me?.twitch_id === entry.twitch_id ? 'is-me' : ''} ${movements[entry.twitch_id] ? 'rank-changed' : ''}`} key={entry.twitch_id}>
         <strong className="rating-rank">#{entry.rank}{movements[entry.twitch_id] > 0 && <small className="rank-up"><ArrowUp size={11} />{movements[entry.twitch_id]}</small>}{movements[entry.twitch_id] < 0 && <small className="rank-down"><ArrowDown size={11} />{Math.abs(movements[entry.twitch_id])}</small>}</strong>
-        <div className="rating-user"><div className="rating-avatar small"><RatingAvatar entry={entry} /></div><span><b>{entry.display_name}</b><small>@{entry.login}</small></span></div>
+        <div className="rating-user"><div className="rating-avatar small"><RatingAvatar entry={entry} fallbackUrl={entry.twitch_id === actor?.twitch_id ? actor?.avatar_url : ''} /></div><span><b>{entry.display_name}</b><small>@{entry.login}</small></span></div>
         <span><i className={`rating-role role-${entry.role}`}>{RATING_ROLE_LABELS[entry.role] || 'Зритель'}</i></span>
         <b>{entry.active_streams}<small> / {rating.stream_count}</small></b><b>{entry.active_days}</b><b>{entry.messages.toLocaleString('ru-RU')}</b>
         <strong className="rating-score">{entry.score}</strong>
