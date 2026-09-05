@@ -2776,14 +2776,20 @@ function ViewerRatingView({ actor, role, onLogin }) {
   const [error, setError] = useState('');
   const [movements, setMovements] = useState({});
   const previousRanksRef = useRef(new Map());
+  const ratingResultsRef = useRef(new Map());
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    let inFlight = false;
+    const cacheKey = `${actor?.id || 'guest'}:${channel}:${period}`;
+    const cached = ratingResultsRef.current.get(cacheKey);
+    setRating(cached || null);
+    setLoading(!cached);
     setError('');
     previousRanksRef.current = new Map();
     const refresh = (initial = false) => {
-      if (!initial && document.hidden) return;
+      if ((!initial && document.hidden) || inFlight) return;
+      inFlight = true;
       api.loadViewerRating(channel, period)
         .then((value) => {
           if (!active) return;
@@ -2796,15 +2802,16 @@ function ViewerRatingView({ actor, role, onLogin }) {
           previousRanksRef.current = new Map((value.items || []).map((entry) => [entry.twitch_id, entry.rank]));
           setMovements(nextMovements);
           setRating(value);
+          ratingResultsRef.current.set(cacheKey, value);
           setError('');
         })
         .catch((reason) => { if (active) setError(reason.message); })
-        .finally(() => { if (active && initial) setLoading(false); });
+        .finally(() => { inFlight = false; if (active) setLoading(false); });
     };
     refresh(true);
-    const timer = window.setInterval(() => refresh(false), 10000);
+    const timer = window.setInterval(() => refresh(false), 60000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [channel, period]);
+  }, [channel, period, actor?.id]);
 
   const leaders = rating?.items?.slice(0, 3) || [];
   const collectorActive = rating?.collectors?.some((item) => item.status === 'connected');
@@ -2853,7 +2860,7 @@ function ViewerRatingView({ actor, role, onLogin }) {
     </section>}
 
     {!loading && rating?.items?.length > 0 && <section className="rating-table panel">
-      <div className="rating-table-head"><div><span className="eyebrow">ТОП ЗРИТЕЛЕЙ</span><h2>Первые 100 мест</h2></div><span className="rating-realtime"><i /> Обновляется каждые 10 секунд</span></div>
+      <div className="rating-table-head"><div><span className="eyebrow">ТОП ЗРИТЕЛЕЙ</span><h2>Первые 100 мест</h2></div><span className="rating-realtime"><i /> {rating?.preparing ? 'Готовим первый расчёт — обновим автоматически' : rating?.generated_at ? `Расчёт: ${new Date(rating.generated_at).toLocaleString('ru-RU')}${rating.stale ? ' · показываем сохранённый результат' : ''}` : 'Проверяем обновления раз в минуту'}</span></div>
       <div className="rating-row rating-columns"><span>Место</span><span>Зритель</span><span>Роль</span><span>Эфиры</span><span>Дни</span><span>Сообщения</span><span>Баллы</span></div>
       {rating.items.map((entry) => <div className={`rating-row ${rating.me?.twitch_id === entry.twitch_id ? 'is-me' : ''} ${movements[entry.twitch_id] ? 'rank-changed' : ''}`} key={entry.twitch_id}>
         <strong className="rating-rank">#{entry.rank}{movements[entry.twitch_id] > 0 && <small className="rank-up"><ArrowUp size={11} />{movements[entry.twitch_id]}</small>}{movements[entry.twitch_id] < 0 && <small className="rank-down"><ArrowDown size={11} />{Math.abs(movements[entry.twitch_id])}</small>}</strong>

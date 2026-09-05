@@ -43,7 +43,7 @@ func testDatabase(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sql := range []string{string(base), newsSchema, portalSchema, moviesSchema, submissionKindsSchema, twitchCacheSchema, unbanAppealsSchema, viewerRatingSchema} {
+	for _, sql := range []string{string(base), newsSchema, portalSchema, moviesSchema, submissionKindsSchema, twitchCacheSchema, unbanAppealsSchema, viewerRatingSchema, ratingSnapshotsSchema} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
 			t.Fatal(err)
 		}

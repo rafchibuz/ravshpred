@@ -42,6 +42,9 @@ var unbanAppealsSchema string
 //go:embed migrations/000008_viewer_rating.sql
 var viewerRatingSchema string
 
+//go:embed migrations/000009_rating_snapshots.sql
+var ratingSnapshotsSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -88,6 +91,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, viewerRatingSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply viewer rating schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, ratingSnapshotsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply rating snapshots schema: %w", err)
 	}
 	return result, nil
 }

@@ -248,6 +248,8 @@ type ViewerRatingStatus struct {
 }
 
 type ViewerRating struct {
+	Preparing           bool                 `json:"preparing,omitempty"`
+	Stale               bool                 `json:"stale,omitempty"`
 	Channel             string               `json:"channel"`
 	Period              string               `json:"period"`
 	GeneratedAt         time.Time            `json:"generated_at"`

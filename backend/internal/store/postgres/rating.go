@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time.Time, lastStream bool, meTwitchID string, limit int) (domain.ViewerRating, error) {
-	if limit < 1 || limit > 100 {
+	if limit < 0 {
 		limit = 100
 	}
 	result := domain.ViewerRating{GeneratedAt: time.Now().UTC(), Items: []domain.ViewerRatingEntry{}, Collectors: []domain.ViewerRatingStatus{}}
@@ -133,7 +133,7 @@ func (s *Store) ViewerRating(ctx context.Context, channels []string, since *time
 			item.Confidence = "high"
 		}
 		result.ParticipantCount++
-		if item.Rank <= limit {
+		if limit == 0 || item.Rank <= limit {
 			result.Items = append(result.Items, item)
 		}
 		if meTwitchID != "" && item.TwitchID == meTwitchID {

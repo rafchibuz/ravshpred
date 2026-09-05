@@ -73,6 +73,11 @@ func New(cfg config.Config, database store.Store, youtubeClient youtube.Client, 
 
 const ratingCacheTTL = 2 * time.Minute
 
+type ratingSnapshots interface {
+	ReadRatingSnapshot(context.Context, string, string, string) (domain.ViewerRating, error)
+	RunRatingSnapshots(context.Context, *slog.Logger)
+}
+
 func cloneViewerRating(value domain.ViewerRating) domain.ViewerRating {
 	copy := value
 	copy.Items = append([]domain.ViewerRatingEntry(nil), value.Items...)
@@ -119,6 +124,10 @@ func (s *Server) cachedViewerRating(ctx context.Context, key string, load func()
 
 // StartRatingCacheWarmer keeps the commonly viewed combined rating periods hot.
 func (s *Server) StartRatingCacheWarmer(ctx context.Context) {
+	if snapshots, ok := s.store.(ratingSnapshots); ok {
+		go snapshots.RunRatingSnapshots(ctx, s.logger)
+		return
+	}
 	go func() {
 		warm := func() {
 			for _, period := range []string{"last_stream", "1d", "7d", "30d", "1y"} {
@@ -250,6 +259,18 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 	meTwitchID := ""
 	if actor, err := s.actor(r); err == nil && actor != nil {
 		meTwitchID = actor.User.TwitchID
+	}
+	if snapshots, ok := s.store.(ratingSnapshots); ok {
+		started := time.Now()
+		result, err := snapshots.ReadRatingSnapshot(r.Context(), channel, period, meTwitchID)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+		w.Header().Set("Cache-Control", "private, no-store")
+		s.logger.Info("rating snapshot served", "channel", channel, "period", period, "preparing", result.Preparing, "stale", result.Stale, "duration_ms", time.Since(started).Milliseconds())
+		writeJSON(w, http.StatusOK, map[string]any{"data": result})
+		return
 	}
 	publicKey := channel + ":" + period + ":public"
 	result, err := s.cachedViewerRating(r.Context(), publicKey, func() (domain.ViewerRating, error) {

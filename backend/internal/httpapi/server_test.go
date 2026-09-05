@@ -124,6 +124,34 @@ func TestViewerRatingUsesServerCache(t *testing.T) {
 	}
 }
 
+type snapshotStub struct {
+	stubStore
+	reads int
+}
+
+func (s *snapshotStub) RunRatingSnapshots(context.Context, *slog.Logger) {}
+func (s *snapshotStub) ReadRatingSnapshot(_ context.Context, channel, period, user string) (domain.ViewerRating, error) {
+	s.reads++
+	return domain.ViewerRating{Channel: channel, Period: period, Preparing: true, Items: []domain.ViewerRatingEntry{}}, nil
+}
+func TestColdSnapshotDoesNotCalculateHistory(t *testing.T) {
+	database := &snapshotStub{}
+	handler := testServer(database)
+	for range 2 {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("GET", "/api/rating?channel=ravshann&period=1y", nil))
+		if response.Code != 200 || !strings.Contains(response.Body.String(), `"preparing":true`) {
+			t.Fatal(response.Body.String())
+		}
+		if response.Header().Get("Cache-Control") != "private, no-store" {
+			t.Fatal("missing private cache policy")
+		}
+	}
+	if database.ratingCalls != 0 || database.reads != 2 {
+		t.Fatalf("history calculated: %+v", database)
+	}
+}
+
 func TestOnlyOwnerCanCreateNewsPost(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
