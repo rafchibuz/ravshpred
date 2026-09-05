@@ -1,0 +1,17 @@
+name: ravshpred-tests
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ravshpred_test
+      POSTGRES_USER: test_runner
+      POSTGRES_PASSWORD: local-test-only
+    ports:
+      - "127.0.0.1:55433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_runner -d ravshpred_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

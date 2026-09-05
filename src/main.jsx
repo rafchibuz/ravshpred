@@ -2847,8 +2847,8 @@ function ViewerRatingView({ actor, role, onLogin }) {
     {!loading && error && <section className="rating-state panel red-text">{error}</section>}
     {!loading && !error && !rating?.items?.length && <section className="rating-empty panel">
       <Trophy size={34} />
-      <h2>Рейтинг только начинает собираться</h2>
-      <p>После сообщений зрителей во время следующих трансляций здесь появятся первые места. Чем больше накоплено стримов, тем точнее результат.</p>
+      <h2>{rating?.preparing ? 'Готовим рейтинг за выбранный период' : 'Рейтинг только начинает собираться'}</h2>
+      <p>{rating?.preparing ? 'Первый расчёт выполняется в фоне. Результат появится автоматически; история сообщений сохранена.' : 'После сообщений зрителей во время следующих трансляций здесь появятся первые места. Чем больше накоплено стримов, тем точнее результат.'}</p>
     </section>}
 
     {!loading && leaders.length > 0 && <section className="rating-podium">

@@ -20,6 +20,8 @@ import (
 
 const eventSubWebSocketURL = "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30"
 
+var errRatingTokenRenewal = errors.New("rating token renewal")
+
 type RatingStream struct {
 	ID, Channel, Title, GameName string
 	StartedAt                    time.Time
@@ -85,12 +87,19 @@ func (c *RatingCollector) Run(ctx context.Context) {
 	go c.reconcileLoop(ctx)
 	for ctx.Err() == nil {
 		if err := c.runSession(ctx, eventSubWebSocketURL, true); err != nil && ctx.Err() == nil {
-			c.logger.Error("rating collector disconnected", "error", err)
+			if errors.Is(err, errRatingTokenRenewal) {
+				c.logger.Info("rating collector reconnecting for token renewal")
+			} else {
+				c.logger.Warn("rating collector disconnected", "error", err)
+			}
+			c.mu.Lock()
+			credentials := c.credentials
+			c.mu.Unlock()
 			status := "error"
-			if c.credentials.AccessToken == "" {
+			if credentials.AccessToken == "" {
 				status = "not_configured"
 			}
-			_ = c.store.SetRatingCollectorStatus(ctx, c.channels, status, c.credentials.Login, err.Error(), nil)
+			_ = c.store.SetRatingCollectorStatus(ctx, c.channels, status, credentials.Login, err.Error(), nil)
 			select {
 			case <-ctx.Done():
 				return
@@ -231,11 +240,10 @@ func (c *RatingCollector) runSession(ctx context.Context, endpoint string, subsc
 		return err
 	}
 	defer conn.CloseNow()
-	for {
-		var envelope eventSubEnvelope
-		if err := wsjson.Read(ctx, conn, &envelope); err != nil {
-			return err
-		}
+	readCtx, stopRead := context.WithCancel(ctx)
+	defer stopRead()
+	events, readErrors := readRatingEvents(readCtx, conn)
+	for envelope := range events {
 		switch envelope.Metadata.MessageType {
 		case "session_welcome":
 			if subscribe {
@@ -243,17 +251,68 @@ func (c *RatingCollector) runSession(ctx context.Context, endpoint string, subsc
 					return err
 				}
 			}
-			_ = c.store.SetRatingCollectorStatus(ctx, c.channels, "connected", c.credentials.Login, "", timePointer(time.Now()))
+			c.mu.Lock()
+			login := c.credentials.Login
+			c.mu.Unlock()
+			_ = c.store.SetRatingCollectorStatus(ctx, c.channels, "connected", login, "", nil)
 		case "session_reconnect":
 			return c.runSession(ctx, envelope.Payload.Session.ReconnectURL, false)
 		case "notification":
-			if err := c.handleEvent(ctx, envelope); err != nil {
+			eventCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := c.handleEvent(eventCtx, envelope)
+			cancel()
+			if err != nil {
 				c.logger.Warn("rating event failed", "error", err)
 			}
 		case "revocation":
 			return fmt.Errorf("Twitch revoked %s: %s", envelope.Metadata.SubscriptionType, envelope.Payload.Subscription.Status)
 		}
 	}
+	err = <-readErrors
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errRatingTokenRenewal
+	}
+	return err
+}
+
+// Read continuously so slow SQL or subscription HTTP calls do not block pong.
+// A bounded queue prevents unbounded memory growth; overload is an explicit error.
+func readRatingEvents(ctx context.Context, conn *websocket.Conn) (<-chan eventSubEnvelope, <-chan error) {
+	events := make(chan eventSubEnvelope, 2048)
+	failures := make(chan error, 1)
+	go func() {
+		defer close(events)
+		timeout := 45 * time.Second
+		for {
+			readCtx, cancel := context.WithTimeout(ctx, timeout)
+			var envelope eventSubEnvelope
+			err := wsjson.Read(readCtx, conn, &envelope)
+			cancel()
+			if err != nil {
+				if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+					err = errors.New("Twitch keepalive missing; reconnecting")
+				}
+				failures <- err
+				return
+			}
+			if seconds := envelope.Payload.Session.KeepaliveSeconds; seconds > 0 {
+				timeout = time.Duration(seconds)*time.Second + 15*time.Second
+			}
+			if envelope.Metadata.MessageType == "session_keepalive" {
+				continue
+			}
+			select {
+			case events <- envelope:
+			case <-ctx.Done():
+				failures <- ctx.Err()
+				return
+			default:
+				failures <- errors.New("rating event queue full; collection gap possible")
+				return
+			}
+		}
+	}()
+	return events, failures
 }
 
 type tokenValidation struct {
@@ -401,8 +460,9 @@ type eventSubEnvelope struct {
 	} `json:"metadata"`
 	Payload struct {
 		Session struct {
-			ID           string `json:"id"`
-			ReconnectURL string `json:"reconnect_url"`
+			KeepaliveSeconds int    `json:"keepalive_timeout_seconds"`
+			ID               string `json:"id"`
+			ReconnectURL     string `json:"reconnect_url"`
 		} `json:"session"`
 		Subscription struct {
 			Status string `json:"status"`
@@ -548,7 +608,10 @@ func (c *RatingCollector) saveMessage(ctx context.Context, raw json.RawMessage, 
 	if err := c.store.InsertRatingMessage(ctx, message); err != nil {
 		return err
 	}
-	return c.store.SetRatingCollectorStatus(ctx, []string{login}, "connected", c.credentials.Login, "", &sentAt)
+	c.mu.Lock()
+	collectorLogin := c.credentials.Login
+	c.mu.Unlock()
+	return c.store.SetRatingCollectorStatus(ctx, []string{login}, "connected", collectorLogin, "", &sentAt)
 }
 
 func contains(values []string, target string) bool {

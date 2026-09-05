@@ -35,7 +35,9 @@ func (s *Store) ReadRatingSnapshot(ctx context.Context, channel, period, userID 
 	if err = json.Unmarshal(payload, &result); err != nil {
 		return result, err
 	}
-	if err = json.Unmarshal(collectors, &result.Collectors); err != nil { return result, err }
+	if err = json.Unmarshal(collectors, &result.Collectors); err != nil {
+		return result, err
+	}
 	if len(personal) > 0 {
 		var me domain.ViewerRatingEntry
 		if err = json.Unmarshal(personal, &me); err != nil {

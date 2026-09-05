@@ -129,6 +129,19 @@ type snapshotStub struct {
 	reads int
 }
 
+func TestStatusWriterRecordsActualResponse(t *testing.T) {
+	for _, status := range []int{200, 400, 403, 500} {
+		recorder := httptest.NewRecorder()
+		writer := &statusWriter{ResponseWriter: recorder}
+		writer.WriteHeader(status)
+		writer.WriteHeader(201)
+		_, _ = writer.Write([]byte("test"))
+		if writer.status != status || recorder.Code != status {
+			t.Fatalf("status=%d recorded=%d", status, writer.status)
+		}
+	}
+}
+
 func (s *snapshotStub) RunRatingSnapshots(context.Context, *slog.Logger) {}
 func (s *snapshotStub) ReadRatingSnapshot(_ context.Context, channel, period, user string) (domain.ViewerRating, error) {
 	s.reads++

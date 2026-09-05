@@ -544,8 +544,30 @@ func (s *Server) refreshTwitchCacheNow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"data": map[string]any{"refreshing": true}})
 }
 
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *statusWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+func (w *statusWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
+}
+
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tracked := &statusWriter{ResponseWriter: w}
+		w = tracked
 		start := time.Now()
 		requestID := randomToken(12)
 		w.Header().Set("X-Request-ID", requestID)
@@ -572,6 +594,13 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				"request_id", requestID,
 				"method", r.Method,
 				"path", r.URL.Path,
+				"status_code", func() int {
+					if tracked.status == 0 {
+						return http.StatusOK
+					}
+					return tracked.status
+				}(),
+				"client_canceled", r.Context().Err() != nil,
 				"duration_ms", time.Since(start).Milliseconds(),
 			)
 		}()
