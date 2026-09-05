@@ -125,7 +125,7 @@ func (s *Store) SaveRatingAvatars(ctx context.Context, avatars map[string]string
 	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO twitch_rating_profiles(user_id, avatar_url, updated_at)
-		SELECT user_id, avatar_url FROM unnest($1::text[], $2::text[]) AS v(user_id, avatar_url)
+		SELECT user_id, avatar_url, now() FROM unnest($1::text[], $2::text[]) AS v(user_id, avatar_url)
 		ON CONFLICT(user_id) DO UPDATE SET avatar_url=excluded.avatar_url, updated_at=now()`, ids, urls)
 	return err
 }

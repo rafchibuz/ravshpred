@@ -95,7 +95,10 @@ func (c *RatingCollector) Run(ctx context.Context) {
 		return
 	}
 	if avatars, ok := c.store.(RatingAvatarStore); ok {
+		c.logger.Info("rating avatar worker started")
 		go c.avatarLoop(ctx, avatars)
+	} else {
+		c.logger.Warn("rating avatar worker unavailable: store does not support profile cache")
 	}
 	go c.reconcileLoop(ctx)
 	for ctx.Err() == nil {
@@ -137,6 +140,7 @@ func (c *RatingCollector) avatarLoop(ctx context.Context, store RatingAvatarStor
 			return
 		}
 		if len(targets) == 0 {
+			c.logger.Debug("rating avatar scan completed", "targets", 0)
 			return
 		}
 		// Profile lookup uses an app token, so it does not depend on the
