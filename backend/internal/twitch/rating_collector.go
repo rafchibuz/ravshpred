@@ -68,6 +68,8 @@ type RatingCollector struct {
 
 	mu           sync.Mutex
 	credentials  RatingCredentials
+	appToken     string
+	appTokenExp  time.Time
 	channelIDs   map[string]string
 	current      map[string]*Stream
 	recentHashes map[string]time.Time
@@ -137,29 +139,9 @@ func (c *RatingCollector) avatarLoop(ctx context.Context, store RatingAvatarStor
 		if len(targets) == 0 {
 			return
 		}
-		c.mu.Lock()
-		accessToken := c.credentials.AccessToken
-		c.mu.Unlock()
-		if accessToken == "" {
-			credentials, credentialsErr := c.store.RatingCredentials(requestCtx)
-			if credentialsErr == nil {
-				accessToken = credentials.AccessToken
-			}
-			if accessToken == "" {
-				accessToken = c.initial.AccessToken
-			}
-			if accessToken != "" {
-				c.mu.Lock()
-				if c.credentials.AccessToken == "" {
-					c.credentials.AccessToken = accessToken
-				}
-				c.mu.Unlock()
-			}
-		}
-		if accessToken == "" {
-			return
-		}
-		avatars, err := c.usersByIDs(requestCtx, targets)
+		// Profile lookup uses an app token, so it does not depend on the
+		// EventSub/chat token being connected or refreshed at this exact moment.
+		avatars, err := c.usersByIDsWithAppToken(requestCtx, targets)
 		if err != nil {
 			if ctx.Err() == nil {
 				c.logger.Warn("rating avatar refresh failed", "users", len(targets), "error", err)
@@ -168,6 +150,8 @@ func (c *RatingCollector) avatarLoop(ctx context.Context, store RatingAvatarStor
 		}
 		if err := store.SaveRatingAvatars(requestCtx, avatars); err != nil && ctx.Err() == nil {
 			c.logger.Warn("rating avatar save failed", "users", len(avatars), "error", err)
+		} else if len(avatars) > 0 {
+			c.logger.Info("rating avatars refreshed", "requested", len(targets), "updated", len(avatars))
 		}
 	}
 	refresh()
@@ -494,6 +478,21 @@ func (c *RatingCollector) userByLogin(ctx context.Context, login string) (User, 
 }
 
 func (c *RatingCollector) usersByIDs(ctx context.Context, ids []string) (map[string]string, error) {
+	c.mu.Lock()
+	accessToken := c.credentials.AccessToken
+	c.mu.Unlock()
+	return c.usersByIDsWithToken(ctx, ids, accessToken)
+}
+
+func (c *RatingCollector) usersByIDsWithAppToken(ctx context.Context, ids []string) (map[string]string, error) {
+	token, err := c.appAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.usersByIDsWithToken(ctx, ids, token)
+}
+
+func (c *RatingCollector) usersByIDsWithToken(ctx context.Context, ids []string, accessToken string) (map[string]string, error) {
 	values := url.Values{}
 	for _, id := range ids {
 		if strings.TrimSpace(id) != "" {
@@ -507,7 +506,21 @@ func (c *RatingCollector) usersByIDs(ctx context.Context, ids []string) (map[str
 	var response struct {
 		Data []User `json:"data"`
 	}
-	if err := c.helix(ctx, http.MethodGet, "https://api.twitch.tv/helix/users?"+values.Encode(), nil, &response); err != nil {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/users?"+values.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Client-Id", c.clientID)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resultResponse, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resultResponse.Body.Close()
+	if resultResponse.StatusCode < 200 || resultResponse.StatusCode >= 300 {
+		return nil, fmt.Errorf("Twitch Helix users: %s", resultResponse.Status)
+	}
+	if err := json.NewDecoder(resultResponse.Body).Decode(&response); err != nil {
 		return nil, err
 	}
 	for _, user := range response.Data {
@@ -516,6 +529,48 @@ func (c *RatingCollector) usersByIDs(ctx context.Context, ids []string) (map[str
 		}
 	}
 	return result, nil
+}
+
+func (c *RatingCollector) appAccessToken(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	if c.appToken != "" && time.Now().Before(c.appTokenExp) {
+		token := c.appToken
+		c.mu.Unlock()
+		return token, nil
+	}
+	c.mu.Unlock()
+	values := url.Values{"client_id": {c.clientID}, "client_secret": {c.clientSecret}, "grant_type": {"client_credentials"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/token", strings.NewReader(values.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", fmt.Errorf("Twitch app token: %s", response.Status)
+	}
+	var raw struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&raw); err != nil {
+		return "", err
+	}
+	if raw.AccessToken == "" {
+		return "", errors.New("Twitch app token is empty")
+	}
+	expires := time.Now().Add(time.Duration(raw.ExpiresIn) * time.Second)
+	if raw.ExpiresIn > 60 {
+		expires = expires.Add(-time.Minute)
+	}
+	c.mu.Lock()
+	c.appToken, c.appTokenExp = raw.AccessToken, expires
+	c.mu.Unlock()
+	return raw.AccessToken, nil
 }
 
 func (c *RatingCollector) streamByID(ctx context.Context, id string) (User, *Stream, error) {
