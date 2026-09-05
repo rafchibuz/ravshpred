@@ -6,6 +6,7 @@ tmp/
 .vite/
 .gocache/
 .gocache-rating/
+.gocache-news-notify/
 .cache/
 .env
 .env.*

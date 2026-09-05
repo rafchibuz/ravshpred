@@ -57,6 +57,16 @@ func (s *stubStore) ListNews(context.Context, int) ([]domain.NewsPost, error) {
 func (s *stubStore) CreateNewsPost(_ context.Context, authorID, title, body string) (domain.NewsPost, error) {
 	return domain.NewsPost{ID: "news-id", Title: title, Body: body, Author: domain.User{ID: authorID}}, nil
 }
+
+type newsBroadcasterStub struct {
+	stubStore
+	notifyUsers []bool
+}
+
+func (s *newsBroadcasterStub) CreateNewsPostWithNotification(_ context.Context, authorID, title, body string, notifyUsers bool) (domain.NewsPost, error) {
+	s.notifyUsers = append(s.notifyUsers, notifyUsers)
+	return domain.NewsPost{ID: "news-id", Title: title, Body: body, Author: domain.User{ID: authorID}}, nil
+}
 func (s *stubStore) GetSettings(context.Context) (domain.GlobalSettings, error) {
 	return domain.GlobalSettings{SubmissionDailyLimit: 5, CommentLimit: 500}, nil
 }
@@ -185,6 +195,33 @@ func TestOnlyOwnerCanCreateNewsPost(t *testing.T) {
 		handler.ServeHTTP(response, request)
 		if response.Code != testCase.want {
 			t.Fatalf("role %s: got %d, want %d: %s", testCase.role, response.Code, testCase.want, response.Body.String())
+		}
+	}
+}
+
+func TestOwnerCanChooseNewsNotifications(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		body string
+		want bool
+	}{
+		{body: `{"title":"Обновление","body":"Новая версия сайта"}`, want: true},
+		{body: `{"title":"Обновление","body":"Новая версия сайта","notify_users":false}`, want: false},
+	} {
+		database := &newsBroadcasterStub{stubStore: stubStore{sessionRole: domain.RoleOwner}}
+		handler := testServer(database)
+		request := httptest.NewRequest(http.MethodPost, "/api/owner/news", strings.NewReader(testCase.body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-CSRF-Token", "csrf")
+		request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+		request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("got %d, want 201: %s", response.Code, response.Body.String())
+		}
+		if len(database.notifyUsers) != 1 || database.notifyUsers[0] != testCase.want {
+			t.Fatalf("notify_users = %#v, want %v", database.notifyUsers, testCase.want)
 		}
 	}
 }

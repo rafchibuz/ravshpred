@@ -48,6 +48,9 @@ var ratingSnapshotsSchema string
 //go:embed migrations/000010_rating_avatars.sql
 var ratingAvatarsSchema string
 
+//go:embed migrations/000011_news_notifications.sql
+var newsNotificationsSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -102,6 +105,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, ratingAvatarsSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply rating avatars schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, newsNotificationsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply news notifications schema: %w", err)
 	}
 	return result, nil
 }
@@ -1215,17 +1222,47 @@ func (s *Store) ListNews(ctx context.Context, limit int) ([]domain.NewsPost, err
 }
 
 func (s *Store) CreateNewsPost(ctx context.Context, authorID, title, body string) (domain.NewsPost, error) {
+	return s.createNewsPost(ctx, authorID, title, body, false)
+}
+
+// CreateNewsPostWithNotification publishes a news item and, when requested,
+// creates one in-app notification for every other registered user.
+func (s *Store) CreateNewsPostWithNotification(ctx context.Context, authorID, title, body string, notifyUsers bool) (domain.NewsPost, error) {
+	return s.createNewsPost(ctx, authorID, title, body, notifyUsers)
+}
+
+func (s *Store) createNewsPost(ctx context.Context, authorID, title, body string, notifyUsers bool) (domain.NewsPost, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.NewsPost{}, err
+	}
+	defer tx.Rollback(ctx)
+
 	var postID string
-	err := s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO news_posts(author_id,title,body)
 		VALUES($1,$2,$3)
 		RETURNING id::text`, authorID, title, body).Scan(&postID)
 	if err != nil {
 		return domain.NewsPost{}, err
 	}
-	if _, err := s.pool.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_log(actor_id,action,target_type,target_id)
 		VALUES($1,'create','news_post',$2)`, authorID, postID); err != nil {
+		return domain.NewsPost{}, err
+	}
+	if notifyUsers {
+		message := fmt.Sprintf("«%s» опубликована. Откройте раздел «Новости», чтобы прочитать.", title)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO notifications(user_id,type,title,body,news_post_id)
+			SELECT u.id,'news','Новая новость',$2,$1
+			FROM users u
+			WHERE u.id <> $3
+			ON CONFLICT DO NOTHING`, postID, message, authorID); err != nil {
+			return domain.NewsPost{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return domain.NewsPost{}, err
 	}
 	return s.newsPostByID(ctx, postID)

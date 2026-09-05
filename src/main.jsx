@@ -1544,6 +1544,7 @@ function NewsView({
 }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [notifyUsers, setNotifyUsers] = useState(true);
   const [commentDrafts, setCommentDrafts] = useState({});
   const [posting, setPosting] = useState(false);
   const [deleteArmed, setDeleteArmed] = useState('');
@@ -1553,9 +1554,10 @@ function NewsView({
     if (!title.trim() || !body.trim()) return;
     setPosting(true);
     try {
-      await onCreatePost(title.trim(), body.trim());
+      await onCreatePost(title.trim(), body.trim(), notifyUsers);
       setTitle('');
       setBody('');
+      setNotifyUsers(true);
       notify('Новость опубликована');
     } catch (error) {
       notify(error.message);
@@ -1602,6 +1604,13 @@ function NewsView({
           <label>
             Текст
             <textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={5000} placeholder="Расскажите пользователям об обновлении…" required />
+          </label>
+          <label className="news-notify-toggle">
+            <input type="checkbox" checked={notifyUsers} onChange={(event) => setNotifyUsers(event.target.checked)} />
+            <span>
+              <b>Уведомить всех пользователей</b>
+              <small>Все зарегистрированные пользователи увидят новость в центре уведомлений.</small>
+            </span>
           </label>
           <div className="news-editor-actions">
             <span>{body.length}/5000</span>
@@ -3210,9 +3219,9 @@ function App() {
       notifications: current.notifications.map((notice) => ({ ...notice, read: true })),
     }));
   };
-  const createNewsPost = async (title, body) => {
+  const createNewsPost = async (title, body, notifyUsers) => {
     if (!apiReady) throw new Error('Сервер временно недоступен');
-    const post = await api.createNewsPost(title, body);
+    const post = await api.createNewsPost(title, body, notifyUsers);
     setState((current) => ({ ...current, news: [post, ...current.news] }));
   };
   const deleteNewsPost = async (postId) => {

@@ -78,6 +78,13 @@ type ratingSnapshots interface {
 	RunRatingSnapshots(context.Context, *slog.Logger)
 }
 
+// newsBroadcaster is an optional extension implemented by the PostgreSQL store.
+// Keeping it separate from store.Store preserves compatibility with lightweight
+// stores used by tests and local tooling.
+type newsBroadcaster interface {
+	CreateNewsPostWithNotification(context.Context, string, string, string, bool) (domain.NewsPost, error)
+}
+
 func cloneViewerRating(value domain.ViewerRating) domain.ViewerRating {
 	copy := value
 	copy.Items = append([]domain.ViewerRatingEntry(nil), value.Items...)
@@ -696,8 +703,9 @@ func (s *Server) createNewsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+		NotifyUsers *bool  `json:"notify_users"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -709,7 +717,14 @@ func (s *Server) createNewsPost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_news_post", "Заголовок или текст новости вне допустимого размера")
 		return
 	}
-	post, err := s.store.CreateNewsPost(r.Context(), actor.User.ID, input.Title, input.Body)
+	var post domain.NewsPost
+	var err error
+	notifyUsers := input.NotifyUsers == nil || *input.NotifyUsers
+	if broadcaster, ok := s.store.(newsBroadcaster); ok {
+		post, err = broadcaster.CreateNewsPostWithNotification(r.Context(), actor.User.ID, input.Title, input.Body, notifyUsers)
+	} else {
+		post, err = s.store.CreateNewsPost(r.Context(), actor.User.ID, input.Title, input.Body)
+	}
 	if err != nil {
 		s.storeError(w, err)
 		return

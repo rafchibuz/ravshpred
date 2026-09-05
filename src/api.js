@@ -389,10 +389,10 @@ export function updateSettings(settings) {
   });
 }
 
-export function createNewsPost(title, body) {
+export function createNewsPost(title, body, notifyUsers = true) {
   return request('/owner/news', {
     method: 'POST',
-    body: { title, body },
+    body: { title, body, notify_users: Boolean(notifyUsers) },
   }).then((payload) => normalizeNewsPost(payload.data));
 }
 
