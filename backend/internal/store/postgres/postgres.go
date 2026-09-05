@@ -638,7 +638,12 @@ func (s *Store) SetWatched(ctx context.Context, submissionID, actorID string, wa
 }
 
 func (s *Store) UpdateVideoCategory(ctx context.Context, submissionID, categoryID, actorID string) error {
-	command, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	command, err := tx.Exec(ctx, `
 		UPDATE submissions SET category_id=$2,updated_at=now(),version=version+1
 		WHERE id::text=$1 AND deleted_at IS NULL`, submissionID, categoryID)
 	if err != nil {
@@ -647,8 +652,11 @@ func (s *Store) UpdateVideoCategory(ctx context.Context, submissionID, categoryI
 	if command.RowsAffected() != 1 {
 		return store.ErrNotFound
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'category_change','submission',$2,jsonb_build_object('category_id',$3))`, actorID, submissionID, categoryID)
-	return err
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata) VALUES($1,'category_change','submission',$2,jsonb_build_object('category_id',$3::text))`, actorID, submissionID, categoryID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) UpdateSubmissionContent(ctx context.Context, input store.UpdateSubmissionContentInput) (domain.Video, error) {
@@ -1488,7 +1496,12 @@ func mustJSON(value any) string {
 
 func (s *Store) UpsertTwitchUser(ctx context.Context, twitchID, login, display, avatar string) (domain.User, error) {
 	var result domain.User
-	err := s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx, `
 		INSERT INTO users(twitch_id,twitch_login,display_name,avatar_url,last_login_at)
 		VALUES($1,$2,$3,$4,now())
 		ON CONFLICT(twitch_id) DO UPDATE SET
@@ -1502,9 +1515,12 @@ func (s *Store) UpsertTwitchUser(ctx context.Context, twitchID, login, display, 
 		twitchID, login, display, avatar).
 		Scan(&result.ID, &result.TwitchID, &result.Login, &result.Display, &result.AvatarURL, &result.Role, &result.CreatedAt)
 	if err == nil {
-		_, _ = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'login','user',$1::text)`, result.ID)
+		_, err = tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1::uuid,'login','user',($1::uuid)::text)`, result.ID)
 	}
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	return result, tx.Commit(ctx)
 }
 
 func (s *Store) PromoteTwitchOwner(ctx context.Context, userID string) (domain.User, error) {
