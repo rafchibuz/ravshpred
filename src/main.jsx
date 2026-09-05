@@ -2859,7 +2859,17 @@ function ViewerRatingView({ actor, role, onLogin }) {
       </article>)}
     </section>}
 
-    {rating?.me && <section className="rating-me panel"><span>Ваше место</span><strong>#{rating.me.rank}</strong><div><b>{rating.me.display_name}</b><small>{rating.me.score} баллов</small></div></section>}
+    {rating?.me && <section className="rating-me panel">
+      <div className="rating-me-rank"><span>Ваше место</span><strong>#{rating.me.rank}</strong></div>
+      <div className="rating-me-user"><b>{rating.me.display_name}</b><small>@{rating.me.login}</small><i className={`rating-role role-${rating.me.role}`}>{RATING_ROLE_LABELS[rating.me.role] || 'Зритель'}</i></div>
+      <div className="rating-me-stats">
+        <span><b>{rating.me.active_streams}<small> / {rating.stream_count}</small></b><em>Эфиры</em></span>
+        <span><b>{rating.me.active_days}</b><em>Дни</em></span>
+        <span><b>{rating.me.active_weeks}</b><em>Недели</em></span>
+        <span><b>{rating.me.messages.toLocaleString('ru-RU')}</b><em>Сообщения</em></span>
+      </div>
+      <strong className="rating-me-score">{rating.me.score}<small>/100</small><em>Баллы</em></strong>
+    </section>}
 
     {!loading && rating?.items?.length > 0 && <section className="rating-table panel">
       <div className="rating-table-head"><div><span className="eyebrow">ТОП ЗРИТЕЛЕЙ</span><h2>Первые 100 мест</h2></div><span className="rating-realtime"><i /> {rating?.preparing ? 'Готовим первый расчёт — обновим автоматически' : rating?.generated_at ? `Расчёт: ${new Date(rating.generated_at).toLocaleString('ru-RU')}${rating.stale ? ' · показываем сохранённый результат' : ''}` : 'Проверяем обновления раз в минуту'}</span></div>
