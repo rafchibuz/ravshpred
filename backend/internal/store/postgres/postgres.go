@@ -1226,7 +1226,7 @@ func (s *Store) CreateNewsPost(ctx context.Context, authorID, title, body string
 }
 
 // CreateNewsPostWithNotification publishes a news item and, when requested,
-// creates one in-app notification for every other registered user.
+// creates one in-app notification for every registered user.
 func (s *Store) CreateNewsPostWithNotification(ctx context.Context, authorID, title, body string, notifyUsers bool) (domain.NewsPost, error) {
 	return s.createNewsPost(ctx, authorID, title, body, notifyUsers)
 }
@@ -1257,8 +1257,7 @@ func (s *Store) createNewsPost(ctx context.Context, authorID, title, body string
 			INSERT INTO notifications(user_id,type,title,body,news_post_id)
 			SELECT u.id,'news','Новая новость',$2,$1
 			FROM users u
-			WHERE u.id <> $3
-			ON CONFLICT DO NOTHING`, postID, message, authorID); err != nil {
+			ON CONFLICT DO NOTHING`, postID, message); err != nil {
 			return domain.NewsPost{}, err
 		}
 	}
