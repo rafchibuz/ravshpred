@@ -1,0 +1,9 @@
+# Local-only override: use the restored VPS copy from compose.test.yaml.
+# Never use this file on the VPS.
+services:
+  api:
+    environment:
+      DATABASE_URL: postgres://test_runner:local-test-only@host.docker.internal:55433/ravshpred_test?sslmode=disable
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: []

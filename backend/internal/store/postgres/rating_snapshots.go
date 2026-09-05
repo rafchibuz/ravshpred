@@ -117,6 +117,10 @@ func (s *Store) RunRatingSnapshots(ctx context.Context, logger *slog.Logger) {
 }
 
 func snapshotSince(period string, now time.Time) *time.Time {
+	if period == "1y" {
+		value := now.AddDate(-1, 0, 0)
+		return &value
+	}
 	days := map[string]int{"1d": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365}[period]
 	if days == 0 {
 		return nil

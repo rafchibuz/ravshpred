@@ -2859,6 +2859,8 @@ function ViewerRatingView({ actor, role, onLogin }) {
       </article>)}
     </section>}
 
+    {rating?.me && <section className="rating-me panel"><span>Ваше место</span><strong>#{rating.me.rank}</strong><div><b>{rating.me.display_name}</b><small>{rating.me.score} баллов</small></div></section>}
+
     {!loading && rating?.items?.length > 0 && <section className="rating-table panel">
       <div className="rating-table-head"><div><span className="eyebrow">ТОП ЗРИТЕЛЕЙ</span><h2>Первые 100 мест</h2></div><span className="rating-realtime"><i /> {rating?.preparing ? 'Готовим первый расчёт — обновим автоматически' : rating?.generated_at ? `Расчёт: ${new Date(rating.generated_at).toLocaleString('ru-RU')}${rating.stale ? ' · показываем сохранённый результат' : ''}` : 'Проверяем обновления раз в минуту'}</span></div>
       <div className="rating-row rating-columns"><span>Место</span><span>Зритель</span><span>Роль</span><span>Эфиры</span><span>Дни</span><span>Сообщения</span><span>Баллы</span></div>
@@ -2871,7 +2873,6 @@ function ViewerRatingView({ actor, role, onLogin }) {
       </div>)}
     </section>}
 
-    {rating?.me && rating.me.rank > 100 && <section className="rating-me panel"><span>Ваше место</span><strong>#{rating.me.rank}</strong><div><b>{rating.me.display_name}</b><small>{rating.me.score} баллов</small></div></section>}
     {!actor && !loading && <section className="rating-login panel"><div><b>Хотите увидеть своё место?</b><span>Войдите через Twitch — сайт сопоставит аккаунт с активностью в чате.</span></div><button className="twitch-btn" onClick={onLogin}>Войти через Twitch</button></section>}
     {role === 'owner' && rating && <section className="rating-owner panel"><div className="rating-owner-head"><div><span className="eyebrow">СБОР ДАННЫХ</span><h2>Подключение Twitch</h2></div><button className="ghost-btn" onClick={() => window.location.assign('/api/owner/rating/connect')}>{collectorActive ? 'Переподключить' : 'Подключить сбор'}</button></div><div className="rating-collector-list">{rating.collectors.map((collector) => <div key={collector.channel}><i className={collector.status === 'connected' ? 'is-live' : ''} /><span><b>{collector.channel === 'ravshann' ? 'RavshanN' : 'ravshanbtw'}</b><small>{collector.status === 'connected' ? `Подключено${collector.collector_user ? ` через @${collector.collector_user}` : ''}` : 'Ожидает подключения'}</small>{collector.last_error && <em>{collector.last_error}</em>}</span><time>{collector.last_event_at ? `Последнее событие ${new Date(collector.last_event_at).toLocaleString('ru-RU')}` : 'Событий пока нет'}</time></div>)}</div></section>}
   </main>;

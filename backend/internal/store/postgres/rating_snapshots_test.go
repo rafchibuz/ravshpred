@@ -59,4 +59,8 @@ func TestSnapshotPeriods(t *testing.T) {
 	if snapshotSince("last_stream", now) != nil || snapshotSince("all", now) != nil {
 		t.Fatal("unexpected cutoff")
 	}
+	leap := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	if !snapshotSince("1y", leap).Equal(leap.AddDate(-1, 0, 0)) {
+		t.Fatal("year must preserve calendar semantics")
+	}
 }
