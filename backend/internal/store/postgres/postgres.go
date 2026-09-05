@@ -45,6 +45,9 @@ var viewerRatingSchema string
 //go:embed migrations/000009_rating_snapshots.sql
 var ratingSnapshotsSchema string
 
+//go:embed migrations/000010_rating_avatars.sql
+var ratingAvatarsSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -95,6 +98,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, ratingSnapshotsSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply rating snapshots schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, ratingAvatarsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply rating avatars schema: %w", err)
 	}
 	return result, nil
 }

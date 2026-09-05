@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,8 +46,110 @@ func (s *Store) ReadRatingSnapshot(ctx context.Context, channel, period, userID 
 		}
 		result.Me = &me
 	}
+	// Snapshot payloads remain compact and immutable. Merge profile images from
+	// the small, separately hydrated top-100 profile cache at read time.
+	ids := make([]string, 0, len(result.Items)+1)
+	for _, item := range result.Items {
+		ids = append(ids, item.TwitchID)
+	}
+	if result.Me != nil {
+		ids = append(ids, result.Me.TwitchID)
+	}
+	avatars, err := s.ratingAvatarURLs(ctx, ids)
+	if err != nil {
+		return result, err
+	}
+	for index := range result.Items {
+		if result.Items[index].AvatarURL == "" {
+			result.Items[index].AvatarURL = avatars[result.Items[index].TwitchID]
+		}
+	}
+	if result.Me != nil && result.Me.AvatarURL == "" {
+		result.Me.AvatarURL = avatars[result.Me.TwitchID]
+	}
 	result.Stale = time.Since(result.GeneratedAt) > 3*time.Minute
 	return result, nil
+}
+
+// RatingAvatarTargets returns only users that are currently missing a cached
+// profile image (or whose image is older than a week). The list is derived
+// from published snapshots, so unregistered viewers are included as well.
+func (s *Store) RatingAvatarTargets(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT item->>'twitch_id'
+		FROM twitch_rating_snapshots s
+		CROSS JOIN LATERAL jsonb_array_elements(s.payload->'items') AS item
+		LEFT JOIN twitch_rating_profiles p ON p.user_id=item->>'twitch_id'
+		WHERE (p.user_id IS NULL OR p.avatar_url='' OR p.updated_at < now()-interval '7 days')
+		ORDER BY 1
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]string, 0, limit)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if id != "" {
+			result = append(result, id)
+		}
+	}
+	return result, rows.Err()
+}
+
+// SaveRatingAvatars publishes the latest Twitch profile images. It is safe to
+// call repeatedly and stores no data for users outside the selected top-100.
+func (s *Store) SaveRatingAvatars(ctx context.Context, avatars map[string]string) error {
+	if len(avatars) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(avatars))
+	for id := range avatars {
+		if id != "" && avatars[id] != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	urls := make([]string, len(ids))
+	for index, id := range ids {
+		urls[index] = avatars[id]
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO twitch_rating_profiles(user_id, avatar_url, updated_at)
+		SELECT user_id, avatar_url FROM unnest($1::text[], $2::text[]) AS v(user_id, avatar_url)
+		ON CONFLICT(user_id) DO UPDATE SET avatar_url=excluded.avatar_url, updated_at=now()`, ids, urls)
+	return err
+}
+
+func (s *Store) ratingAvatarURLs(ctx context.Context, userIDs []string) (map[string]string, error) {
+	result := make(map[string]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT user_id, avatar_url FROM twitch_rating_profiles WHERE user_id=ANY($1)`, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, avatar string
+		if err := rows.Scan(&id, &avatar); err != nil {
+			return nil, err
+		}
+		if avatar != "" {
+			result[id] = avatar
+		}
+	}
+	return result, rows.Err()
 }
 
 func (s *Store) publishRatingSnapshot(ctx context.Context, key string, result domain.ViewerRating) error {

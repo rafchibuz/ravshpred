@@ -5,6 +5,7 @@ dist/
 tmp/
 .vite/
 .gocache/
+.gocache-rating/
 .cache/
 .env
 .env.*

@@ -50,6 +50,14 @@ type RatingCollectorStore interface {
 	SetRatingCollectorStatus(context.Context, []string, string, string, string, *time.Time) error
 }
 
+// RatingAvatarStore is optional so existing collector implementations and
+// tests remain compatible. The PostgreSQL store implements it to hydrate only
+// viewers that are present in a published top-100 snapshot.
+type RatingAvatarStore interface {
+	RatingAvatarTargets(context.Context, int) ([]string, error)
+	SaveRatingAvatars(context.Context, map[string]string) error
+}
+
 type RatingCollector struct {
 	clientID, clientSecret string
 	initial                RatingCredentials
@@ -84,6 +92,9 @@ func (c *RatingCollector) Run(ctx context.Context) {
 		_ = c.store.SetRatingCollectorStatus(ctx, c.channels, "not_configured", "", "", nil)
 		return
 	}
+	if avatars, ok := c.store.(RatingAvatarStore); ok {
+		go c.avatarLoop(ctx, avatars)
+	}
 	go c.reconcileLoop(ctx)
 	for ctx.Err() == nil {
 		if err := c.runSession(ctx, eventSubWebSocketURL, true); err != nil && ctx.Err() == nil {
@@ -105,6 +116,69 @@ func (c *RatingCollector) Run(ctx context.Context) {
 				return
 			case <-time.After(15 * time.Second):
 			}
+		}
+	}
+}
+
+// avatarLoop keeps the profile images for the visible rating fresh without
+// making a Twitch request for every chat participant. New users are picked up
+// automatically after the next snapshot publication.
+func (c *RatingCollector) avatarLoop(ctx context.Context, store RatingAvatarStore) {
+	refresh := func() {
+		requestCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		targets, err := store.RatingAvatarTargets(requestCtx, 100)
+		if err != nil {
+			if ctx.Err() == nil {
+				c.logger.Warn("rating avatar targets failed", "error", err)
+			}
+			return
+		}
+		if len(targets) == 0 {
+			return
+		}
+		c.mu.Lock()
+		accessToken := c.credentials.AccessToken
+		c.mu.Unlock()
+		if accessToken == "" {
+			credentials, credentialsErr := c.store.RatingCredentials(requestCtx)
+			if credentialsErr == nil {
+				accessToken = credentials.AccessToken
+			}
+			if accessToken == "" {
+				accessToken = c.initial.AccessToken
+			}
+			if accessToken != "" {
+				c.mu.Lock()
+				if c.credentials.AccessToken == "" {
+					c.credentials.AccessToken = accessToken
+				}
+				c.mu.Unlock()
+			}
+		}
+		if accessToken == "" {
+			return
+		}
+		avatars, err := c.usersByIDs(requestCtx, targets)
+		if err != nil {
+			if ctx.Err() == nil {
+				c.logger.Warn("rating avatar refresh failed", "users", len(targets), "error", err)
+			}
+			return
+		}
+		if err := store.SaveRatingAvatars(requestCtx, avatars); err != nil && ctx.Err() == nil {
+			c.logger.Warn("rating avatar save failed", "users", len(avatars), "error", err)
+		}
+	}
+	refresh()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refresh()
 		}
 	}
 }
@@ -418,6 +492,32 @@ func (c *RatingCollector) userByLogin(ctx context.Context, login string) (User, 
 	}
 	return result.Data[0], nil
 }
+
+func (c *RatingCollector) usersByIDs(ctx context.Context, ids []string) (map[string]string, error) {
+	values := url.Values{}
+	for _, id := range ids {
+		if strings.TrimSpace(id) != "" {
+			values.Add("id", id)
+		}
+	}
+	result := make(map[string]string, len(ids))
+	if len(values) == 0 {
+		return result, nil
+	}
+	var response struct {
+		Data []User `json:"data"`
+	}
+	if err := c.helix(ctx, http.MethodGet, "https://api.twitch.tv/helix/users?"+values.Encode(), nil, &response); err != nil {
+		return nil, err
+	}
+	for _, user := range response.Data {
+		if user.ID != "" && user.AvatarURL != "" {
+			result[user.ID] = user.AvatarURL
+		}
+	}
+	return result, nil
+}
+
 func (c *RatingCollector) streamByID(ctx context.Context, id string) (User, *Stream, error) {
 	var result struct {
 		Data []Stream `json:"data"`
