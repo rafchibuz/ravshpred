@@ -67,7 +67,13 @@ func (s *Store) ReadRatingSnapshot(ctx context.Context, channel, period, userID 
 	if result.Me != nil && result.Me.AvatarURL == "" {
 		result.Me.AvatarURL = avatars[result.Me.TwitchID]
 	}
-	result.Stale = time.Since(result.GeneratedAt) > 3*time.Minute
+	sourceUpdatedAt, err := s.ratingSourceUpdatedAt(ctx, channel)
+	if err != nil {
+		return result, err
+	}
+	// An old snapshot is still current while the source data is unchanged.
+	// Age alone must not make an idle/offline rating look stale.
+	result.Stale = sourceUpdatedAt.After(result.GeneratedAt)
 	return result, nil
 }
 
@@ -179,6 +185,81 @@ func (s *Store) publishRatingSnapshot(ctx context.Context, key string, result do
 	return tx.Commit(ctx)
 }
 
+var ratingSnapshotPeriods = []string{"30d", "last_stream", "1d", "7d", "1y", "90d", "all"}
+var ratingSnapshotChannels = []string{"all", "ravshann", "ravshanbtw"}
+
+type ratingSnapshotJob struct {
+	channel string
+	period  string
+}
+
+// ratingSourceUpdatedAt is intentionally cheap: collector state has only two
+// rows and the stream table is small. last_event_at advances for every accepted
+// chat event, while stream timestamps cover online/offline changes without chat.
+func (s *Store) ratingSourceUpdatedAt(ctx context.Context, channel string) (time.Time, error) {
+	var result time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT GREATEST(
+			COALESCE((SELECT max(last_event_at) FROM twitch_rating_state
+				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz),
+			COALESCE((SELECT max(started_at) FROM twitch_rating_streams
+				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz),
+			COALESCE((SELECT max(ended_at) FROM twitch_rating_streams
+				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz)
+		)`, channel).Scan(&result)
+	return result, err
+}
+
+// pendingRatingSnapshotJobs compares the source watermark with persisted
+// snapshots. The check runs every minute, but expensive scoring only runs for
+// a channel whose messages or stream state actually changed.
+func (s *Store) pendingRatingSnapshotJobs(ctx context.Context) ([]ratingSnapshotJob, error) {
+	sourceVersions := make(map[string]time.Time, len(ratingSnapshotChannels))
+	for _, channel := range ratingSnapshotChannels {
+		version, err := s.ratingSourceUpdatedAt(ctx, channel)
+		if err != nil {
+			return nil, err
+		}
+		sourceVersions[channel] = version
+	}
+
+	keys := make([]string, 0, len(ratingSnapshotPeriods)*len(ratingSnapshotChannels))
+	for _, period := range ratingSnapshotPeriods {
+		for _, channel := range ratingSnapshotChannels {
+			keys = append(keys, channel+":"+period)
+		}
+	}
+	generated := make(map[string]time.Time, len(keys))
+	rows, err := s.pool.Query(ctx, `SELECT key,generated_at FROM twitch_rating_snapshots WHERE key=ANY($1)`, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var at time.Time
+		if err := rows.Scan(&key, &at); err != nil {
+			return nil, err
+		}
+		generated[key] = at
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	jobs := make([]ratingSnapshotJob, 0, len(keys))
+	for _, period := range ratingSnapshotPeriods {
+		for _, channel := range ratingSnapshotChannels {
+			key := channel + ":" + period
+			at, exists := generated[key]
+			if !exists || sourceVersions[channel].After(at) {
+				jobs = append(jobs, ratingSnapshotJob{channel: channel, period: period})
+			}
+		}
+	}
+	return jobs, nil
+}
+
 // One dedicated connection bounds background work and cannot exhaust the HTTP pool.
 // The advisory transaction lock prevents duplicate workers across API instances.
 func (s *Store) RunRatingSnapshots(ctx context.Context, logger *slog.Logger) {
@@ -195,20 +276,24 @@ func (s *Store) RunRatingSnapshots(ctx context.Context, logger *slog.Logger) {
 	defer pool.Close()
 	worker := &Store{pool: pool}
 	for ctx.Err() == nil {
-		for _, period := range []string{"30d", "last_stream", "1d", "7d", "1y", "90d", "all"} {
-			for _, channel := range []string{"all", "ravshann", "ravshanbtw"} {
-				if ctx.Err() != nil {
-					return
-				}
-				started := time.Now()
-				jobCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-				err := worker.refreshRatingSnapshot(jobCtx, channel, period)
-				cancel()
-				if err != nil {
-					logger.Warn("rating snapshot refresh failed", "channel", channel, "period", period, "duration_ms", time.Since(started).Milliseconds(), "error", err)
-				} else {
-					logger.Info("rating snapshot refresh completed", "channel", channel, "period", period, "duration_ms", time.Since(started).Milliseconds())
-				}
+		jobs, err := worker.pendingRatingSnapshotJobs(ctx)
+		if err != nil {
+			logger.Warn("rating snapshot change check failed", "error", err)
+		} else if len(jobs) == 0 {
+			logger.Debug("rating snapshots unchanged; refresh skipped")
+		}
+		for _, job := range jobs {
+			if ctx.Err() != nil {
+				return
+			}
+			started := time.Now()
+			jobCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+			err := worker.refreshRatingSnapshot(jobCtx, job.channel, job.period)
+			cancel()
+			if err != nil {
+				logger.Warn("rating snapshot refresh failed", "channel", job.channel, "period", job.period, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+			} else {
+				logger.Info("rating snapshot refresh completed", "channel", job.channel, "period", job.period, "duration_ms", time.Since(started).Milliseconds())
 			}
 		}
 		select {
@@ -251,10 +336,6 @@ func (s *Store) refreshRatingSnapshot(ctx context.Context, channel, period strin
 		_, _ = s.pool.Exec(cleanup, "SELECT pg_advisory_unlock(913572)")
 	}()
 	key := channel + ":" + period
-	var fresh bool
-	if err = s.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM twitch_rating_snapshots WHERE key=$1 AND generated_at > now()-interval '60 seconds')", key).Scan(&fresh); err != nil || fresh {
-		return err
-	}
 	channels := []string{"ravshann", "ravshanbtw"}
 	if channel != "all" {
 		channels = []string{channel}
