@@ -68,9 +68,38 @@ type Video struct {
 	Watched          bool             `json:"watched"`
 	Rating           int64            `json:"rating"`
 	UserVote         int              `json:"user_vote,omitempty"`
+	RavshTOKStatus   string           `json:"ravshtok_status,omitempty"`
+	RavshTOKError    string           `json:"ravshtok_error,omitempty"`
+	RavshTOKAttempts int              `json:"ravshtok_attempts,omitempty"`
 	Version          int              `json:"version"`
 	CreatedAt        time.Time        `json:"created_at"`
 	UpdatedAt        time.Time        `json:"updated_at"`
+}
+
+type RavshTOKItem struct {
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	Description     string    `json:"description"`
+	SourceURL       string    `json:"source_url"`
+	Platform        string    `json:"platform"`
+	MediaStatus     string    `json:"media_status"`
+	PlaybackURL     string    `json:"playback_url,omitempty"`
+	PosterURL       string    `json:"poster_url,omitempty"`
+	DurationSeconds int       `json:"duration_seconds"`
+	Width           int       `json:"width"`
+	Height          int       `json:"height"`
+	Likes           int64     `json:"likes"`
+	Dislikes        int64     `json:"dislikes"`
+	UserVote        int       `json:"user_vote"`
+	UserViewed      bool      `json:"user_viewed"`
+	StreamerWatched bool      `json:"streamer_watched"`
+	Author          User      `json:"author"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type RavshTOKFeed struct {
+	Items   []RavshTOKItem `json:"items"`
+	HasMore bool           `json:"has_more"`
 }
 
 type Notification struct {
@@ -142,6 +171,7 @@ type AuditEntry struct {
 
 type GlobalSettings struct {
 	SubmissionDailyLimit int          `json:"submission_daily_limit"`
+	RavshTOKDailyLimit   int          `json:"ravshtok_daily_limit"`
 	CommentLimit         int          `json:"submission_comment_limit"`
 	PublicFeedEnabled    bool         `json:"public_feed_enabled"`
 	AllowSelfVote        bool         `json:"allow_self_vote"`

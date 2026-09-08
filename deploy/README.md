@@ -11,6 +11,18 @@ docker compose --env-file .env -f deploy/compose.yaml up --build
 Сайт будет доступен на `http://localhost:8088`, readiness API —
 `http://localhost:8088/health/ready`.
 
+## Диагностика VPS
+
+Чтобы собрать логи, состояние контейнеров, использование CPU/RAM и диска, а
+также сводку очереди RavshTOK за последние сутки, запустите из корня проекта:
+
+```bash
+sh deploy/collect-diagnostics.sh 24h
+```
+
+Скрипт создаст `diagnostics-YYYYMMDDTHHMMSSZ.tar.gz`. Файл `.env`, пароли и
+токены в архив не добавляются. Вместо `24h` можно указать, например, `7d`.
+
 Роли выдаются только через Twitch-сессию. Тестового входа и заголовков,
 подменяющих пользователя, в приложении нет.
 

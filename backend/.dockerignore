@@ -1,0 +1,4 @@
+.gocache
+.gocache-*
+tmp
+*.test

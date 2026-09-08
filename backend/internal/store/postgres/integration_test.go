@@ -2,12 +2,15 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ravshann/predlozhka/backend/internal/domain"
+	"github.com/ravshann/predlozhka/backend/internal/store"
 )
 
 // TEST_DATABASE_URL must point to a disposable LOCAL test database.
@@ -43,7 +46,7 @@ func testDatabase(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sql := range []string{string(base), newsSchema, portalSchema, moviesSchema, submissionKindsSchema, twitchCacheSchema, unbanAppealsSchema, viewerRatingSchema, ratingSnapshotsSchema, ratingAvatarsSchema, newsNotificationsSchema} {
+	for _, sql := range []string{string(base), newsSchema, portalSchema, moviesSchema, submissionKindsSchema, twitchCacheSchema, unbanAppealsSchema, viewerRatingSchema, ratingSnapshotsSchema, ratingAvatarsSchema, newsNotificationsSchema, ravshTOKSchema} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
 			t.Fatal(err)
 		}
@@ -92,5 +95,75 @@ func TestLoginAuditAndCategoryAtomicity(t *testing.T) {
 	}
 	if actual != second || version != 2 {
 		t.Fatalf("partial update: category=%s version=%d", actual, version)
+	}
+}
+
+func TestRavshTOKLifecycle(t *testing.T) {
+	s := testDatabase(t)
+	ctx := context.Background()
+	author, err := s.UpsertTwitchUser(ctx, "ravshtok-author", "ravshtok_author", "RavshTOK Author", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := s.UpsertTwitchUser(ctx, "ravshtok-viewer", "ravshtok_viewer", "RavshTOK Viewer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var categoryID string
+	if err := s.pool.QueryRow(ctx, "SELECT id::text FROM categories WHERE slug='funny'").Scan(&categoryID); err != nil {
+		t.Fatal(err)
+	}
+	video, err := s.CreateSubmission(ctx, store.CreateSubmissionInput{
+		ContentKind: "video", SourceType: "short_video", SourceURL: "https://www.tiktok.com/@ravshann/video/123",
+		Title: "RavshTOK test", ChannelTitle: "TikTok / Reels", AuthorID: author.ID, CategoryID: categoryID,
+		DailyLimit: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, err := s.ListMine(ctx, author.ID, 10)
+	if err != nil || len(mine) != 1 || mine[0].RavshTOKStatus != "pending" {
+		t.Fatalf("unexpected initial media state: %+v error=%v", mine, err)
+	}
+	if _, err := s.CreateSubmission(ctx, store.CreateSubmissionInput{
+		ContentKind: "video", SourceType: "external", SourceURL: "https://example.com/video",
+		Title: "Regular video", ChannelTitle: "example.com", AuthorID: author.ID, CategoryID: categoryID,
+		DailyLimit: 1,
+	}); err != nil {
+		t.Fatalf("regular submission must use a separate daily limit: %v", err)
+	}
+	if _, err := s.CreateSubmission(ctx, store.CreateSubmissionInput{
+		ContentKind: "video", SourceType: "short_video", SourceURL: "https://www.tiktok.com/@ravshann/video/456",
+		Title: "Second RavshTOK", ChannelTitle: "TikTok / Reels", AuthorID: author.ID, CategoryID: categoryID,
+		DailyLimit: 1,
+	}); !errors.Is(err, store.ErrDailyLimit) {
+		t.Fatalf("second RavshTOK must hit its own limit, got %v", err)
+	}
+	if _, err := s.pool.Exec(ctx, "UPDATE submissions SET status='approved' WHERE id::text=$1", video.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, "UPDATE ravshtok_media SET status='ready',media_path='ravshtok/test.mp4',poster_path='ravshtok/test.webp' WHERE submission_id::text=$1", video.ID); err != nil {
+		t.Fatal(err)
+	}
+	ordinaryFeed, _, err := s.ListFeed(ctx, store.FeedParams{UserID: viewer.ID, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range ordinaryFeed {
+		if item.ID == video.ID {
+			t.Fatal("RavshTOK item leaked into the ordinary proposal feed")
+		}
+	}
+
+	feed, err := s.ListRavshTOK(ctx, store.RavshTOKParams{UserID: viewer.ID, Role: domain.RoleOwner, Mode: "new", Platform: "all", Sort: "new", Limit: 12})
+	if err != nil || len(feed.Items) != 1 || feed.Items[0].PlaybackURL != "/media/ravshtok/test.mp4" {
+		t.Fatalf("unexpected new feed: %+v error=%v", feed, err)
+	}
+	if err := s.MarkRavshTOKViewed(ctx, video.ID, viewer.ID, domain.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	feed, err = s.ListRavshTOK(ctx, store.RavshTOKParams{UserID: viewer.ID, Role: domain.RoleOwner, Mode: "watched", Platform: "all", Sort: "new", Limit: 12})
+	if err != nil || len(feed.Items) != 1 || !feed.Items[0].UserViewed || !feed.Items[0].StreamerWatched {
+		t.Fatalf("unexpected watched feed: %+v error=%v", feed, err)
 	}
 }

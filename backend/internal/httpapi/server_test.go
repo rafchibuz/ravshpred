@@ -68,7 +68,7 @@ func (s *newsBroadcasterStub) CreateNewsPostWithNotification(_ context.Context, 
 	return domain.NewsPost{ID: "news-id", Title: title, Body: body, Author: domain.User{ID: authorID}}, nil
 }
 func (s *stubStore) GetSettings(context.Context) (domain.GlobalSettings, error) {
-	return domain.GlobalSettings{SubmissionDailyLimit: 5, CommentLimit: 500}, nil
+	return domain.GlobalSettings{SubmissionDailyLimit: 5, RavshTOKDailyLimit: 9, CommentLimit: 500, PublicFeedEnabled: true}, nil
 }
 func (s *stubStore) ViewerRating(context.Context, []string, *time.Time, bool, string, int) (domain.ViewerRating, error) {
 	s.ratingCalls++
@@ -102,6 +102,67 @@ func testServer(database store.Store) http.Handler {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return New(cfg, database, stubYouTube{}, logger).Handler()
+}
+
+type ravshTOKStub struct {
+	stubStore
+	params   store.RavshTOKParams
+	viewedID string
+	vote     int
+}
+
+func (s *ravshTOKStub) ListRavshTOK(_ context.Context, params store.RavshTOKParams) (domain.RavshTOKFeed, error) {
+	s.params = params
+	return domain.RavshTOKFeed{Items: []domain.RavshTOKItem{{ID: "video-id", Title: "RavshTOK"}}}, nil
+}
+
+func (s *ravshTOKStub) MarkRavshTOKViewed(_ context.Context, submissionID, _ string, _ domain.Role) error {
+	s.viewedID = submissionID
+	return nil
+}
+
+func (s *ravshTOKStub) RavshTOKVoteCounts(context.Context, string) (int64, int64, error) {
+	return 7, 2, nil
+}
+
+func (s *ravshTOKStub) Vote(_ context.Context, _, _ string, value int) (int64, int, error) {
+	s.vote = value
+	return 5, value, nil
+}
+
+func TestRavshTOKFeedAndActions(t *testing.T) {
+	database := &ravshTOKStub{stubStore: stubStore{sessionRole: domain.RoleOwner}}
+	handler := testServer(database)
+
+	feedRequest := httptest.NewRequest(http.MethodGet, "/api/ravshtok?mode=watched&platform=instagram&sort=popular&limit=9&offset=3", nil)
+	feedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(feedResponse, feedRequest)
+	if feedResponse.Code != http.StatusOK || database.params.Mode != "watched" || database.params.Platform != "instagram" || database.params.Offset != 3 {
+		t.Fatalf("unexpected feed response=%d params=%+v body=%s", feedResponse.Code, database.params, feedResponse.Body.String())
+	}
+
+	for _, testCase := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodPost, path: "/api/ravshtok/video-id/view"},
+		{method: http.MethodPut, path: "/api/ravshtok/video-id/vote", body: `{"value":1}`},
+	} {
+		request := httptest.NewRequest(testCase.method, testCase.path, strings.NewReader(testCase.body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-CSRF-Token", "csrf")
+		request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+		request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code < 200 || response.Code >= 300 {
+			t.Fatalf("%s returned %d: %s", testCase.path, response.Code, response.Body.String())
+		}
+	}
+	if database.viewedID != "video-id" || database.vote != 1 {
+		t.Fatalf("actions not recorded: viewed=%q vote=%d", database.viewedID, database.vote)
+	}
 }
 
 func TestPublicHealthAndCategories(t *testing.T) {
@@ -339,12 +400,17 @@ func TestUserCanSubmitShortAndExternalLinks(t *testing.T) {
 		name       string
 		sourceType string
 		url        string
+		dailyLimit int
+		categoryID string
 	}{
-		{name: "short video", sourceType: "short_video", url: "https://www.instagram.com/reel/example/"},
-		{name: "external", sourceType: "external", url: "https://kappa.lol/example"},
+		{name: "short video", sourceType: "short_video", url: "https://www.instagram.com/reel/example/", dailyLimit: 9, categoryID: "uncategorized-id"},
+		{name: "external", sourceType: "external", url: "https://kappa.lol/example", dailyLimit: 5, categoryID: "category-id"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			database := &stubStore{sessionRole: domain.RoleUser, categories: []domain.Category{{ID: "category-id", Slug: "funny", Name: "Смешное"}}}
+			database := &stubStore{sessionRole: domain.RoleUser, categories: []domain.Category{
+				{ID: "category-id", Slug: "funny", Name: "Смешное"},
+				{ID: "uncategorized-id", Slug: "uncategorized", Name: "Без категории"},
+			}}
 			handler := testServer(database)
 			body := fmt.Sprintf(`{"content_kind":"video","source_type":%q,"url":%q,"title":"Тестовое видео","category_id":"category-id"}`, testCase.sourceType, testCase.url)
 			request := httptest.NewRequest(http.MethodPost, "/api/submissions", strings.NewReader(body))
@@ -360,7 +426,42 @@ func TestUserCanSubmitShortAndExternalLinks(t *testing.T) {
 			if database.createdInput == nil || database.createdInput.SourceType != testCase.sourceType || database.createdInput.SourceURL != testCase.url {
 				t.Fatalf("unexpected input: %#v", database.createdInput)
 			}
+			if database.createdInput.DailyLimit != testCase.dailyLimit {
+				t.Fatalf("daily limit = %d, want %d", database.createdInput.DailyLimit, testCase.dailyLimit)
+			}
+			if database.createdInput.CategoryID != testCase.categoryID {
+				t.Fatalf("category = %q, want %q", database.createdInput.CategoryID, testCase.categoryID)
+			}
 		})
+	}
+}
+
+func TestPublicSettingsExposeSubmissionLimits(t *testing.T) {
+	t.Parallel()
+	handler := testServer(&stubStore{})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"submission_daily_limit":5`) || !strings.Contains(response.Body.String(), `"ravshtok_daily_limit":9`) {
+		t.Fatalf("unexpected settings response: %s", response.Body.String())
+	}
+}
+
+func TestShortVideoRejectsTikTokPhotoURL(t *testing.T) {
+	t.Parallel()
+	database := &stubStore{sessionRole: domain.RoleUser, categories: []domain.Category{{ID: "category-id", Slug: "funny", Name: "Смешное"}}}
+	handler := testServer(database)
+	request := httptest.NewRequest(http.MethodPost, "/api/submissions", strings.NewReader(`{"content_kind":"video","source_type":"short_video","url":"https://www.tiktok.com/@creator/photo/7656482769765141780","title":"Фото" ,"category_id":"category-id"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "test_session", Value: "session"})
+	request.AddCookie(&http.Cookie{Name: "test_session_csrf", Value: "csrf"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400: %s", response.Code, response.Body.String())
 	}
 }
 

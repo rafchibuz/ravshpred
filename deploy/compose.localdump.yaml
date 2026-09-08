@@ -7,3 +7,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: []
+  ravshtok-worker:
+    environment:
+      DATABASE_URL: postgres://test_runner:local-test-only@host.docker.internal:55433/ravshpred_test?sslmode=disable
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - api

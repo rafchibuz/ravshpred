@@ -85,6 +85,12 @@ type newsBroadcaster interface {
 	CreateNewsPostWithNotification(context.Context, string, string, string, bool) (domain.NewsPost, error)
 }
 
+type ravshTOKStore interface {
+	ListRavshTOK(context.Context, store.RavshTOKParams) (domain.RavshTOKFeed, error)
+	MarkRavshTOKViewed(context.Context, string, string, domain.Role) error
+	RavshTOKVoteCounts(context.Context, string) (int64, int64, error)
+}
+
 func cloneViewerRating(value domain.ViewerRating) domain.ViewerRating {
 	copy := value
 	copy.Items = append([]domain.ViewerRatingEntry(nil), value.Items...)
@@ -189,7 +195,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health/live", s.live)
 	mux.HandleFunc("GET /health/ready", s.ready)
 	mux.HandleFunc("GET /api/categories", s.categories)
+	mux.HandleFunc("GET /api/settings", s.publicSettings)
 	mux.HandleFunc("GET /api/videos", s.feed)
+	mux.HandleFunc("GET /api/ravshtok", s.ravshTOKFeed)
+	mux.HandleFunc("POST /api/ravshtok/{id}/view", s.ravshTOKView)
+	mux.HandleFunc("PUT /api/ravshtok/{id}/vote", s.ravshTOKVote)
 	mux.HandleFunc("GET /api/streamer", s.streamer)
 	mux.HandleFunc("GET /api/twitch/clips", s.twitchClips)
 	mux.HandleFunc("GET /api/twitch/videos", s.twitchVideos)
@@ -812,6 +822,105 @@ func (s *Server) feed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": items, "next_cursor": next})
 }
 
+func (s *Server) ravshTOKFeed(w http.ResponseWriter, r *http.Request) {
+	database, ok := s.store.(ravshTOKStore)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "ravshtok_unavailable", "RavshTOK пока недоступен")
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
+	if mode == "" {
+		mode = "new"
+	}
+	if mode != "new" && mode != "watched" && mode != "all" {
+		writeError(w, http.StatusBadRequest, "invalid_mode", "Неизвестный режим RavshTOK")
+		return
+	}
+	platform := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("platform")))
+	if platform == "" {
+		platform = "all"
+	}
+	if platform != "all" && platform != "tiktok" && platform != "instagram" {
+		writeError(w, http.StatusBadRequest, "invalid_platform", "Неизвестная площадка RavshTOK")
+		return
+	}
+	sort := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
+	if sort == "" {
+		sort = "new"
+	}
+	if sort != "new" && sort != "popular" {
+		writeError(w, http.StatusBadRequest, "invalid_sort", "Неизвестная сортировка RavshTOK")
+		return
+	}
+	params := store.RavshTOKParams{
+		Mode: mode, Platform: platform, Sort: sort,
+		Limit: intQuery(r, "limit", 12), Offset: intQuery(r, "offset", 0),
+		Role: "guest",
+	}
+	if actor, err := s.actor(r); err == nil && actor != nil {
+		params.UserID = actor.User.ID
+		params.Role = actor.User.Role
+	}
+	result, err := database.ListRavshTOK(r.Context(), params)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (s *Server) ravshTOKView(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "view_profile")
+	if actor == nil {
+		return
+	}
+	database, ok := s.store.(ravshTOKStore)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "ravshtok_unavailable", "RavshTOK пока недоступен")
+		return
+	}
+	if err := database.MarkRavshTOKViewed(r.Context(), r.PathValue("id"), actor.User.ID, actor.User.Role); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) ravshTOKVote(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "vote")
+	if actor == nil {
+		return
+	}
+	database, ok := s.store.(ravshTOKStore)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "ravshtok_unavailable", "RavshTOK пока недоступен")
+		return
+	}
+	id := r.PathValue("id")
+	if _, _, err := database.RavshTOKVoteCounts(r.Context(), id); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	var input struct {
+		Value int `json:"value"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	_, current, err := s.store.Vote(r.Context(), id, actor.User.ID, input.Value)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	likes, dislikes, err := database.RavshTOKVoteCounts(r.Context(), id)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"likes": likes, "dislikes": dislikes, "user_vote": current})
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	actor, err := s.actor(r)
 	if err != nil || actor == nil {
@@ -983,13 +1092,21 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 	}
 	movieCategory := false
 	categoryExists := false
+	uncategorizedID := ""
 	for _, category := range categories {
+		if category.Slug == "uncategorized" {
+			uncategorizedID = category.ID
+		}
 		if category.ID == input.CategoryID {
 			categoryExists = true
 			name := strings.ToLower(category.Name)
 			movieCategory = strings.Contains(name, "трейлер") || strings.Contains(name, "фильм") || strings.Contains(name, "сериал")
-			break
 		}
+	}
+	if input.SourceType == "short_video" && uncategorizedID != "" {
+		input.CategoryID = uncategorizedID
+		categoryExists = true
+		movieCategory = false
 	}
 	if !categoryExists {
 		writeError(w, http.StatusBadRequest, "invalid_category", "Выберите существующую категорию")
@@ -1045,10 +1162,18 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if input.SourceType == "short_video" {
-			channelTitle = "TikTok / Instagram"
+			if !validRavshTOKURL(parsedURL) {
+				writeError(w, http.StatusBadRequest, "invalid_short_video_url", "Добавьте ссылку на видео TikTok или Instagram Reels")
+				return
+			}
+			channelTitle = "TikTok / Reels"
 		} else {
 			channelTitle = parsedURL.Hostname()
 		}
+	}
+	dailyLimit := settings.SubmissionDailyLimit
+	if input.SourceType == "short_video" {
+		dailyLimit = settings.RavshTOKDailyLimit
 	}
 	video, err := s.store.CreateSubmission(r.Context(), store.CreateSubmissionInput{
 		ContentKind:      input.ContentKind,
@@ -1070,7 +1195,7 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		MovieYear:        input.MovieYear,
 		MovieStudio:      strings.TrimSpace(input.MovieStudio),
 		MovieRating:      input.MovieRating,
-		DailyLimit:       settings.SubmissionDailyLimit,
+		DailyLimit:       dailyLimit,
 	})
 	if err != nil {
 		s.storeError(w, err)
@@ -1592,6 +1717,20 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": settings})
 }
 
+func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.store.GetSettings(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+		"submission_daily_limit":   settings.SubmissionDailyLimit,
+		"ravshtok_daily_limit":     settings.RavshTOKDailyLimit,
+		"submission_comment_limit": settings.CommentLimit,
+		"public_feed_enabled":      settings.PublicFeedEnabled,
+	}})
+}
+
 func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	actor := s.require(w, r, "manage")
 	if actor == nil {
@@ -1619,6 +1758,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if input.SubmissionDailyLimit < 1 || input.SubmissionDailyLimit > 20 ||
+		input.RavshTOKDailyLimit < 1 || input.RavshTOKDailyLimit > 100 ||
 		input.CommentLimit < 100 || input.CommentLimit > 2000 ||
 		!validSocials || !validSupport ||
 		!validOptionalURL(input.PartnerLinks.BetBoom) || !validOptionalURL(input.PartnerLinks.Majestic) || !validOptionalURL(input.PartnerLinks.LitEnergy) ||
@@ -1662,6 +1802,21 @@ func validKinopoiskURL(value string) bool {
 	}
 	host := strings.ToLower(parsed.Hostname())
 	return host == "kinopoisk.ru" || strings.HasSuffix(host, ".kinopoisk.ru")
+}
+
+func validRavshTOKURL(parsed *url.URL) bool {
+	host := strings.ToLower(parsed.Hostname())
+	path := strings.ToLower(parsed.EscapedPath())
+	switch host {
+	case "tiktok.com", "www.tiktok.com", "m.tiktok.com":
+		return strings.HasPrefix(path, "/@") && strings.Contains(path, "/video/")
+	case "vm.tiktok.com", "vt.tiktok.com":
+		return path != "" && path != "/"
+	case "instagram.com", "www.instagram.com":
+		return strings.HasPrefix(path, "/reel/") || strings.HasPrefix(path, "/reels/")
+	default:
+		return false
+	}
 }
 
 func (s *Server) actor(r *http.Request) (*actorContext, error) {

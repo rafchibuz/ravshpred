@@ -1,5 +1,11 @@
 name: ravshann-predlozhka
 
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,6 +23,7 @@ services:
       timeout: 3s
       retries: 20
     networks: [internal]
+    logging: *default-logging
 
   api:
     build:
@@ -43,6 +50,41 @@ services:
       postgres:
         condition: service_healthy
     networks: [internal]
+    logging: *default-logging
+
+  ravshtok-worker:
+    build:
+      context: ../workers/ravshtok
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://ravshann:${POSTGRES_PASSWORD:-ravshann}@postgres:5432/ravshann?sslmode=disable
+      RAVSHTOK_MEDIA_ROOT: /media
+      RAVSHTOK_POLL_SECONDS: ${RAVSHTOK_POLL_SECONDS:-5}
+      RAVSHTOK_MAX_DURATION_SECONDS: ${RAVSHTOK_MAX_DURATION_SECONDS:-600}
+      RAVSHTOK_MAX_SIZE_MB: ${RAVSHTOK_MAX_SIZE_MB:-150}
+      RAVSHTOK_INITIAL_RETENTION_DAYS: ${RAVSHTOK_INITIAL_RETENTION_DAYS:-90}
+      RAVSHTOK_DOWNLOAD_TIMEOUT_SECONDS: ${RAVSHTOK_DOWNLOAD_TIMEOUT_SECONDS:-240}
+      RAVSHTOK_MAX_ATTEMPTS: ${RAVSHTOK_MAX_ATTEMPTS:-5}
+      RAVSHTOK_DIAGNOSTICS_SECONDS: ${RAVSHTOK_DIAGNOSTICS_SECONDS:-300}
+    volumes:
+      - ravshtok_media:/media
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cpus: 1.0
+    mem_limit: 768m
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks: [internal]
+    logging: *default-logging
 
   frontend:
     build:
@@ -52,8 +94,14 @@ services:
     ports:
       - "127.0.0.1:${LOCAL_HTTP_PORT:-8088}:80"
     depends_on:
-      - api
+      api:
+        condition: service_started
+      ravshtok-worker:
+        condition: service_started
+    volumes:
+      - ravshtok_media:/media:ro
     networks: [internal]
+    logging: *default-logging
 
   backup:
     build:
@@ -72,6 +120,7 @@ services:
       postgres:
         condition: service_healthy
     networks: [internal]
+    logging: *default-logging
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -81,6 +130,7 @@ services:
     depends_on:
       - frontend
     networks: [internal]
+    logging: *default-logging
 
 networks:
   internal:
@@ -88,3 +138,4 @@ networks:
 
 volumes:
   postgres_data:
+  ravshtok_media:

@@ -51,6 +51,12 @@ var ratingAvatarsSchema string
 //go:embed migrations/000011_news_notifications.sql
 var newsNotificationsSchema string
 
+//go:embed migrations/000012_ravshtok.sql
+var ravshTOKSchema string
+
+//go:embed migrations/000013_retry_instagram_reels.sql
+var retryInstagramReelsSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -109,6 +115,14 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, newsNotificationsSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply news notifications schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, ravshTOKSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply RavshTOK schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, retryInstagramReelsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("retry Instagram Reels: %w", err)
 	}
 	return result, nil
 }
@@ -334,10 +348,12 @@ const videoSelect = `
 		c.id::text, c.slug, c.name, c.is_system, c.sort_order, c.created_at,
 		EXISTS(SELECT 1 FROM streamer_marks sm WHERE sm.submission_id = s.id),
 		COALESCE((SELECT SUM(v.value) FROM votes v WHERE v.submission_id = s.id), 0),
-		COALESCE((SELECT v.value FROM votes v WHERE v.submission_id = s.id AND v.user_id::text = $1), 0)
+		COALESCE((SELECT v.value FROM votes v WHERE v.submission_id = s.id AND v.user_id::text = $1), 0),
+		COALESCE(rm.status,''), COALESCE(rm.last_error,''), COALESCE(rm.attempts,0)
 	FROM submissions s
 	JOIN users u ON u.id = s.author_id
 	JOIN categories c ON c.id = s.category_id
+	LEFT JOIN ravshtok_media rm ON rm.submission_id = s.id
 `
 
 func (s *Store) ListFeed(ctx context.Context, params store.FeedParams) ([]domain.Video, string, error) {
@@ -345,6 +361,7 @@ func (s *Store) ListFeed(ctx context.Context, params store.FeedParams) ([]domain
 	cursorTime, cursorID := decodeCursor(params.Cursor)
 	query := videoSelect + `
 		WHERE s.status IN ('approved', 'pending', 'rejected') AND s.deleted_at IS NULL
+		  AND s.source_type <> 'short_video'
 		  AND ($2 = '' OR c.slug = $2)
 		  AND ($3::boolean IS NULL OR EXISTS(SELECT 1 FROM streamer_marks sm WHERE sm.submission_id = s.id) = $3)
 		  AND ($4::timestamptz IS NULL OR (s.created_at, s.id::text) < ($4, $5))
@@ -445,8 +462,9 @@ func (s *Store) CreateSubmission(ctx context.Context, input store.CreateSubmissi
 	var count int
 	if err := tx.QueryRow(ctx, `
 		SELECT count(*) FROM submissions
-		WHERE author_id::text = $1 AND created_at >= now() - interval '24 hours' AND deleted_at IS NULL`,
-		input.AuthorID).Scan(&count); err != nil {
+		WHERE author_id::text = $1 AND created_at >= now() - interval '24 hours' AND deleted_at IS NULL
+		  AND (CASE WHEN $2='short_video' THEN source_type='short_video' ELSE source_type<>'short_video' END)`,
+		input.AuthorID, input.SourceType).Scan(&count); err != nil {
 		return domain.Video{}, err
 	}
 	if count >= input.DailyLimit {
@@ -472,6 +490,18 @@ func (s *Store) CreateSubmission(ctx context.Context, input store.CreateSubmissi
 	}
 	if err != nil {
 		return domain.Video{}, err
+	}
+	if input.SourceType == "short_video" {
+		platform := "tiktok"
+		if strings.Contains(strings.ToLower(input.SourceURL), "instagram.com") {
+			platform = "instagram"
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ravshtok_media(submission_id,platform)
+			VALUES($1,$2)
+			ON CONFLICT(submission_id) DO NOTHING`, id, platform); err != nil {
+			return domain.Video{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'submit','submission',$2)`, input.AuthorID, id); err != nil {
 		return domain.Video{}, err
@@ -710,6 +740,19 @@ func (s *Store) UpdateSubmissionContent(ctx context.Context, input store.UpdateS
 	}
 	if command.RowsAffected() != 1 {
 		return domain.Video{}, store.ErrVersionConflict
+	}
+	if sourceType == "short_video" {
+		platform := "tiktok"
+		if strings.Contains(strings.ToLower(input.SourceURL), "instagram.com") {
+			platform = "instagram"
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ravshtok_media
+			SET platform=$2,status='pending',media_path='',poster_path='',last_error='',attempts=0,
+				next_attempt_at=now(),lease_until=NULL,ready_at=NULL,expires_at=NULL,updated_at=now()
+			WHERE submission_id::text=$1`, input.SubmissionID, platform); err != nil {
+			return domain.Video{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'content_update','submission',$2)`, input.ModeratorID, input.SubmissionID); err != nil {
 		return domain.Video{}, err
@@ -1433,6 +1476,7 @@ func (s *Store) WriteAudit(ctx context.Context, actorID, action, targetType, tar
 func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) {
 	result := domain.GlobalSettings{
 		SubmissionDailyLimit: 3,
+		RavshTOKDailyLimit:   10,
 		CommentLimit:         500,
 		PublicFeedEnabled:    true,
 		AllowSelfVote:        false,
@@ -1458,6 +1502,8 @@ func (s *Store) GetSettings(ctx context.Context) (domain.GlobalSettings, error) 
 		switch key {
 		case "submission_daily_limit":
 			result.SubmissionDailyLimit, _ = strconv.Atoi(value)
+		case "ravshtok_daily_limit":
+			result.RavshTOKDailyLimit, _ = strconv.Atoi(value)
 		case "submission_comment_limit":
 			result.CommentLimit, _ = strconv.Atoi(value)
 		case "public_feed_enabled":
@@ -1509,6 +1555,7 @@ func (s *Store) UpdateSettings(ctx context.Context, settings domain.GlobalSettin
 	defer tx.Rollback(ctx)
 	values := map[string]any{
 		"submission_daily_limit":   settings.SubmissionDailyLimit,
+		"ravshtok_daily_limit":     settings.RavshTOKDailyLimit,
 		"submission_comment_limit": settings.CommentLimit,
 		"public_feed_enabled":      settings.PublicFeedEnabled,
 		"allow_self_vote":          settings.AllowSelfVote,
@@ -1679,6 +1726,7 @@ func scanVideo(row scanner, video *domain.Video) error {
 		&video.Category.ID, &video.Category.Slug, &video.Category.Name, &video.Category.IsSystem,
 		&video.Category.SortOrder, &video.Category.CreatedAt,
 		&video.Watched, &video.Rating, &video.UserVote,
+		&video.RavshTOKStatus, &video.RavshTOKError, &video.RavshTOKAttempts,
 	)
 	video.Status = domain.SubmissionStatus(status)
 	video.Author.Role = domain.Role(role)
