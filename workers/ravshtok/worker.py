@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import shutil
 import signal
@@ -17,9 +18,13 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 MEDIA_ROOT = Path(os.getenv("RAVSHTOK_MEDIA_ROOT", "/media"))
 OUTPUT_DIR = MEDIA_ROOT / "ravshtok"
 POLL_SECONDS = max(2, int(os.getenv("RAVSHTOK_POLL_SECONDS", "5")))
-MAX_DURATION = max(15, int(os.getenv("RAVSHTOK_MAX_DURATION_SECONDS", "600")))
+MAX_DURATION = min(90, max(15, int(os.getenv("RAVSHTOK_MAX_DURATION_SECONDS", "90"))))
 MAX_SIZE_MB = max(20, int(os.getenv("RAVSHTOK_MAX_SIZE_MB", "150")))
 DOWNLOAD_TIMEOUT = max(30, int(os.getenv("RAVSHTOK_DOWNLOAD_TIMEOUT_SECONDS", "240")))
+TRANSCODE_TIMEOUT = max(120, int(os.getenv("RAVSHTOK_TRANSCODE_TIMEOUT_SECONDS", "900")))
+FFMPEG_PRESET = os.getenv("RAVSHTOK_FFMPEG_PRESET", "veryfast").strip().lower()
+if FFMPEG_PRESET not in {"ultrafast", "superfast", "veryfast", "faster", "fast", "medium"}:
+    FFMPEG_PRESET = "veryfast"
 MAX_ATTEMPTS = max(1, int(os.getenv("RAVSHTOK_MAX_ATTEMPTS", "5")))
 INITIAL_RETENTION_DAYS = max(30, int(os.getenv("RAVSHTOK_INITIAL_RETENTION_DAYS", "90")))
 DIAGNOSTICS_SECONDS = max(60, int(os.getenv("RAVSHTOK_DIAGNOSTICS_SECONDS", "300")))
@@ -79,7 +84,7 @@ def claim_job(connection):
                 LIMIT 1
             )
             UPDATE ravshtok_media rm
-            SET status='processing',attempts=attempts+1,lease_until=now()+interval '10 minutes',
+            SET status='processing',attempts=attempts+1,lease_until=now()+interval '30 minutes',
                 last_error='',updated_at=now()
             FROM candidate c,submissions s
             WHERE rm.submission_id=c.submission_id AND s.id=rm.submission_id
@@ -92,17 +97,37 @@ def claim_job(connection):
 
 def probe_video(path: Path) -> dict:
     result = run([
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height:format=duration", "-of", "json", str(path),
+        "ffprobe", "-v", "error",
+        "-show_entries", "stream=codec_type,codec_name,width,height,pix_fmt:format=duration",
+        "-of", "json", str(path),
     ], timeout=30)
     payload = json.loads(result.stdout)
-    stream = (payload.get("streams") or [{}])[0]
-    duration = int(round(float((payload.get("format") or {}).get("duration") or 0)))
+    streams = payload.get("streams") or []
+    stream = next((item for item in streams if item.get("codec_type") == "video"), {})
+    audio = next((item for item in streams if item.get("codec_type") == "audio"), None)
+    duration = int(math.ceil(float((payload.get("format") or {}).get("duration") or 0)))
     return {
         "duration": duration,
         "width": int(stream.get("width") or 0),
         "height": int(stream.get("height") or 0),
+        "video_codec": str(stream.get("codec_name") or "").lower(),
+        "audio_codec": str((audio or {}).get("codec_name") or "").lower(),
+        "pixel_format": str(stream.get("pix_fmt") or "").lower(),
     }
+
+
+def duration_error() -> ValueError:
+    return ValueError("Ролик длиннее 1:30. Максимальная длительность RavshTOK — 1 минута 30 секунд")
+
+
+def can_remux(metadata: dict) -> bool:
+    return (
+        metadata.get("video_codec") == "h264"
+        and metadata.get("audio_codec") in {"", "aac"}
+        and metadata.get("pixel_format") in {"yuv420p", "yuvj420p"}
+        and 0 < int(metadata.get("width") or 0) <= 1080
+        and 0 < int(metadata.get("height") or 0) <= 1920
+    )
 
 
 def prepare_media(job: dict) -> tuple[Path, Path, dict]:
@@ -126,6 +151,8 @@ def prepare_media(job: dict) -> tuple[Path, Path, dict]:
         except subprocess.CalledProcessError as error:
             details = (error.stderr or error.stdout or "").strip().splitlines()
             detail = details[-1][:900] if details else "yt-dlp завершился с ошибкой"
+            if "does not pass filter" in detail.lower() and "duration" in detail.lower():
+                raise duration_error() from error
             raise RuntimeError(detail) from error
         media_extensions = {".mp4", ".webm", ".mkv", ".mov", ".m4v"}
         sources = [
@@ -139,19 +166,40 @@ def prepare_media(job: dict) -> tuple[Path, Path, dict]:
         source = max(sources, key=lambda path: path.stat().st_size)
 
         source_meta = probe_video(source)
-        if source_meta["duration"] <= 0 or source_meta["duration"] > MAX_DURATION:
-            raise ValueError(f"video duration must be between 1 and {MAX_DURATION} seconds")
+        if source_meta["duration"] <= 0:
+            raise ValueError("Не удалось определить длительность ролика")
+        if source_meta["duration"] > MAX_DURATION:
+            raise duration_error()
         if source.stat().st_size > MAX_SIZE_MB * 1024 * 1024:
             raise ValueError(f"source video is larger than {MAX_SIZE_MB} MB")
 
         normalized = work_dir / "video.mp4"
         poster = work_dir / "poster.webp"
-        run([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
-            "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(normalized),
-        ])
+        try:
+            if can_remux(source_meta):
+                logger.info("compatible source, remuxing id=%s", job["submission_id"])
+                run([
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+                    "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
+                    "-movflags", "+faststart", str(normalized),
+                ], timeout=TRANSCODE_TIMEOUT)
+            else:
+                logger.info(
+                    "transcoding source id=%s codec=%s dimensions=%sx%s preset=%s",
+                    job["submission_id"], source_meta["video_codec"], source_meta["width"],
+                    source_meta["height"], FFMPEG_PRESET,
+                )
+                run([
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+                    "-map", "0:v:0", "-map", "0:a:0?",
+                    "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                    "-c:v", "libx264", "-preset", FFMPEG_PRESET, "-crf", "22", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(normalized),
+                ], timeout=TRANSCODE_TIMEOUT)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(
+                f"FFmpeg не успел обработать ролик за {TRANSCODE_TIMEOUT} секунд"
+            ) from error
         run([
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", "0.2",
             "-i", str(normalized), "-frames:v", "1", "-vf", "scale=540:-2", str(poster),
@@ -293,8 +341,10 @@ def main():
     last_cleanup = 0.0
     last_diagnostics = 0.0
     logger.info(
-        "worker started poll_seconds=%s max_duration=%s max_size_mb=%s max_attempts=%s retention_days=%s",
-        POLL_SECONDS, MAX_DURATION, MAX_SIZE_MB, MAX_ATTEMPTS, INITIAL_RETENTION_DAYS,
+        "worker started poll_seconds=%s max_duration=%s max_size_mb=%s download_timeout=%s "
+        "transcode_timeout=%s ffmpeg_preset=%s max_attempts=%s retention_days=%s",
+        POLL_SECONDS, MAX_DURATION, MAX_SIZE_MB, DOWNLOAD_TIMEOUT, TRANSCODE_TIMEOUT,
+        FFMPEG_PRESET, MAX_ATTEMPTS, INITIAL_RETENTION_DAYS,
     )
     connection = connect()
     while running and connection is not None:

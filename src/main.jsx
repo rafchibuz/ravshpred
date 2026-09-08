@@ -2044,6 +2044,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
             <h3>Перед отправкой</h3>
             <p><Check size={14} /> {isIdea ? 'Сформулируйте понятное название идеи' : 'Ссылка должна открываться без специального доступа'}</p>
             <p><Check size={14} /> Предложение сначала проверит модератор</p>
+            {isRavshTOK && <p><Check size={14} /> Длительность ролика — не более 1 минуты 30 секунд</p>}
             <p><Check size={14} /> Максимум {dailyLimit} {isRavshTOK ? 'роликов RavshTOK' : 'предложений'} за 24 часа</p>
           </div>
         </section>

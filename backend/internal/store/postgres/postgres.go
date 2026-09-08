@@ -57,6 +57,9 @@ var ravshTOKSchema string
 //go:embed migrations/000013_retry_instagram_reels.sql
 var retryInstagramReelsSchema string
 
+//go:embed migrations/000014_retry_ravshtok_timeouts.sql
+var retryRavshTOKTimeoutsSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -123,6 +126,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, retryInstagramReelsSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("retry Instagram Reels: %w", err)
+	}
+	if _, err := pool.Exec(ctx, retryRavshTOKTimeoutsSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("retry RavshTOK timeouts: %w", err)
 	}
 	return result, nil
 }

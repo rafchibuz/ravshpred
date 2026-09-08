@@ -941,3 +941,37 @@ body.modal-open { overflow: hidden; }
   .social-links { justify-content: flex-start; }
   .legal-sections .panel { padding: 18px 15px; }
 }
+
+/*
+ * Large desktop scaling
+ *
+ * The interface was originally sized around Full HD. A 4K display with the
+ * recommended 150% Windows scaling exposes a 2560px-wide CSS viewport, which
+ * otherwise leaves controls and text noticeably smaller than intended. Zoom
+ * the whole application at large, sufficiently tall viewports. Chromium
+ * already compensates percentage widths inside a zoomed root; only viewport
+ * heights need an explicit inverse scale for full-screen layouts.
+ */
+@media screen and (min-width: 2200px) and (min-height: 1000px) {
+  #root {
+    min-height: 80vh;
+    zoom: 1.25;
+  }
+
+  .app-shell { min-height: 80vh; }
+  .ravshtok-body { height: 80dvh; }
+  .ravshtok-page { height: calc(80dvh - 70px); }
+  .ravshtok-video-stage { height: min(850px,calc(80dvh - 121px)); }
+}
+
+@media screen and (min-width: 3200px) and (min-height: 1600px) {
+  #root {
+    min-height: 66.6667vh;
+    zoom: 1.5;
+  }
+
+  .app-shell { min-height: 66.6667vh; }
+  .ravshtok-body { height: 66.6667dvh; }
+  .ravshtok-page { height: calc(66.6667dvh - 70px); }
+  .ravshtok-video-stage { height: min(850px,calc(66.6667dvh - 121px)); }
+}
