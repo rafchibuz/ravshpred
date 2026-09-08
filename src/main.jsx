@@ -29,6 +29,7 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -37,6 +38,8 @@ import {
   Upload,
   UserRound,
   Video as VideoIcon,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import {
@@ -141,6 +144,26 @@ const STATUS_LABELS = {
   hidden: 'Скрыто',
 };
 
+const RAVSHTOK_MEDIA_LABELS = {
+  pending: 'Ожидает загрузки',
+  processing: 'Загружается',
+  ready: 'Готово в RavshTOK',
+  failed: 'Ошибка загрузки',
+  expired: 'Срок хранения истёк',
+};
+
+function RavshTOKMediaState({ video, detailed = false }) {
+  if (video.sourceType !== 'short_video' || !video.ravshtokStatus) return null;
+  const status = video.ravshtokStatus;
+  return (
+    <div className={`ravshtok-media-state ${status}`}>
+      <span>{RAVSHTOK_MEDIA_LABELS[status] || status}</span>
+      {video.ravshtokAttempts > 0 && status !== 'ready' && <small>Попытка {video.ravshtokAttempts}</small>}
+      {detailed && video.ravshtokError && <details><summary>Показать ошибку</summary><p>{video.ravshtokError}</p></details>}
+    </div>
+  );
+}
+
 const UNBAN_STATUS_LABELS = {
   pending: 'Новая', in_review: 'На рассмотрении', needs_info: 'Нужно уточнение', approved: 'Одобрена',
   rejected: 'Отклонена', withdrawn: 'Отозвана', duplicate: 'Дубликат',
@@ -161,11 +184,34 @@ const tones = {
 
 const agoIso = (hours) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
+function isSupportedRavshTOKURL(value) {
+  try {
+    const parsed = new URL(value.trim());
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (['tiktok.com', 'www.tiktok.com', 'm.tiktok.com'].includes(host)) return path.startsWith('/@') && path.includes('/video/');
+    if (['vm.tiktok.com', 'vt.tiktok.com'].includes(host)) return path !== '/';
+    return ['instagram.com', 'www.instagram.com'].includes(host) && (path.startsWith('/reel/') || path.startsWith('/reels/'));
+  } catch {
+    return false;
+  }
+}
+
+function isTikTokPhotoURL(value) {
+  try {
+    const parsed = new URL(value.trim());
+    return ['tiktok.com', 'www.tiktok.com', 'm.tiktok.com'].includes(parsed.hostname.toLowerCase())
+      && parsed.pathname.toLowerCase().includes('/photo/');
+  } catch {
+    return false;
+  }
+}
+
 function makeInitialState() {
   return {
     categories: ['Без категории', 'Смешное', 'Трейлеры', 'Фильмы и сериалы', 'Разоблачения'],
     moderators: ['moderator_live', 'lexapro_tv', 'shadowmff'],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [], supportLinks: [], partnerLinks: {}, siteLinks: [] },
+    settings: { dailyLimit: 3, ravshtokDailyLimit: 10, commentLimit: 500, publicFeed: true, socials: {}, socialLinks: [], supportLinks: [], partnerLinks: {}, siteLinks: [] },
     streamer: null,
     userStats: [],
     videos: [
@@ -400,7 +446,7 @@ function emptyServerState() {
     news: [],
     audit: [],
     auditRecords: [],
-    settings: { dailyLimit: 3, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [], supportLinks: [], partnerLinks: {}, siteLinks: [] },
+    settings: { dailyLimit: 3, ravshtokDailyLimit: 10, commentLimit: 500, publicFeed: true, allowSelfVote: false, socials: {}, socialLinks: [], supportLinks: [], partnerLinks: {}, siteLinks: [] },
     streamer: null,
     userStats: [],
   };
@@ -477,6 +523,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
   const nav = [
     { key: 'home', label: 'Главная', icon: Home },
     { key: 'community', label: 'Предложка', icon: Play },
+    { key: 'ravshtok', label: 'RavshTOK', icon: Smartphone },
     { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
     { key: 'vods', label: 'Записи стримов', icon: VideoIcon },
     { key: 'rating', label: 'РЕЙТИНГ', icon: Trophy },
@@ -493,7 +540,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
     ...(can(role, 'manage') ? [{ key: 'owner', label: 'Управление', icon: Settings }] : []),
   ];
 
-  const primaryKeys = new Set(['home', 'community', 'clips', 'news', 'submit']);
+  const primaryKeys = new Set(['home', 'community', 'ravshtok', 'clips', 'submit']);
   const go = (key) => {
     navigate(key);
     setMobileOpen(false);
@@ -647,7 +694,7 @@ function Thumb({ video, large = false }) {
           }
         }}
       />}
-      {!isYouTube && <div className={`submission-thumb-symbol ${isIdea ? 'idea' : ''}`}>{isIdea ? <Lightbulb size={large ? 58 : 34} /> : <Link2 size={large ? 58 : 34} />}<strong>{isIdea ? 'ИДЕЯ ДЛЯ СТРИМА' : sourceType === 'short_video' ? 'TIKTOK / INSTAGRAM' : 'ДРУГАЯ ССЫЛКА'}</strong></div>}
+      {!isYouTube && <div className={`submission-thumb-symbol ${isIdea ? 'idea' : ''}`}>{isIdea ? <Lightbulb size={large ? 58 : 34} /> : <Link2 size={large ? 58 : 34} />}<strong>{isIdea ? 'ИДЕЯ ДЛЯ СТРИМА' : sourceType === 'short_video' ? 'TIKTOK / REELS' : 'ДРУГАЯ ССЫЛКА'}</strong></div>}
       <div className="thumb-top">
         <span className={`mini-tag status-${status}`}>{STATUS_LABELS[status]?.toUpperCase() || 'ВИДЕО'}</span>
         {video.watched && (
@@ -682,7 +729,7 @@ function VideoCard({ video, role, onVote, onOpen, onManage, list }) {
           <em>·</em>
           <span>{new Date(video.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
-        <div className="channel">{video.contentKind === 'stream_idea' ? 'Идея для стрима' : (video.sourceType || 'youtube') === 'youtube' ? `YouTube: ${video.channel}` : `${video.sourceType === 'short_video' ? 'TikTok / Instagram' : 'Источник'}: ${video.channel}`}</div>
+        <div className="channel">{video.contentKind === 'stream_idea' ? 'Идея для стрима' : (video.sourceType || 'youtube') === 'youtube' ? `YouTube: ${video.channel}` : `${video.sourceType === 'short_video' ? 'TikTok / Reels' : 'Источник'}: ${video.channel}`}</div>
         {(video.movieTitle || video.movieYear || video.movieStudio || video.movieRating !== '' || video.kinopoiskUrl) && (
           <div className="movie-card-info">
             {video.movieTitle && <strong>{video.movieTitle}</strong>}
@@ -1177,6 +1224,16 @@ function formatTimelineTime(value) {
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
+function formatMediaTime(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+    : `${minutes}:${String(remainder).padStart(2, '0')}`;
+}
+
 function twitchVideoThumbnail(url) {
   return String(url || '').replace('%{width}', '640').replace('%{height}', '360');
 }
@@ -1384,7 +1441,8 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
   const [visibleStatuses, setVisibleStatuses] = useState(['approved']);
   const [sort, setSort] = useState('Новые');
   const [list, setList] = useState(false);
-  const approved = videos.filter((video) => video.status === 'approved');
+  const ordinaryVideos = videos.filter((video) => video.sourceType !== 'short_video');
+  const approved = ordinaryVideos.filter((video) => video.status === 'approved');
   const toggleStatus = (status) => {
     setVisibleStatuses((current) => current.includes(status)
       ? current.filter((item) => item !== status)
@@ -1396,7 +1454,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
   };
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return videos
+    return ordinaryVideos
       .filter(
         (video) =>
           visibleStatuses.includes(video.status) &&
@@ -1410,7 +1468,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
         if (sort === 'Рейтингу') return voteTotals(b).score - voteTotals(a).score;
         return voteTotals(b).score - voteTotals(a).score;
       });
-  }, [videos, visibleStatuses, kind, category, watchedOnly, sort, search]);
+  }, [ordinaryVideos, visibleStatuses, kind, category, watchedOnly, sort, search]);
 
   return (
     <main className="main-content">
@@ -1438,7 +1496,7 @@ function Feed({ videos, categories, role, search, onVote, onOpen, navigate, onLo
           ['all', 'Все предложения'],
           ['video', 'Видео'],
           ['stream_idea', 'Идеи для стрима'],
-        ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => setKind(value)}>{label}<span>{value === 'all' ? videos.length : videos.filter((video) => (video.contentKind || 'video') === value).length}</span></button>)}
+        ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => setKind(value)}>{label}<span>{value === 'all' ? ordinaryVideos.length : ordinaryVideos.filter((video) => (video.contentKind || 'video') === value).length}</span></button>)}
       </div>
       {kind !== 'stream_idea' && <div className="chips">
         <div className="chip-bar">
@@ -1791,8 +1849,11 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
   const [movie, setMovie] = useState({ title: '', year: '', studio: '', rating: '', url: '' });
   const [error, setError] = useState('');
   const [sentId, setSentId] = useState(null);
-  const count = recentSubmissionCount(state.videos, actor.id);
   const isIdea = contentKind === 'stream_idea';
+  const isRavshTOK = contentKind === 'short_video';
+  const dailyLimit = isRavshTOK ? state.settings.ravshtokDailyLimit : state.settings.dailyLimit;
+  const countedVideos = state.videos.filter((video) => isRavshTOK ? video.sourceType === 'short_video' : video.sourceType !== 'short_video');
+  const count = recentSubmissionCount(countedVideos, actor.id);
   const youtubeId = sourceType === 'youtube' ? parseYouTubeId(url) : null;
   const trailerCategory = /трейлер|фильм|сериал/i.test(category);
 
@@ -1803,25 +1864,27 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
     setError('');
     if (!isIdea && sourceType === 'youtube' && !youtubeId) return setError('Проверьте ссылку: нужен корректный URL YouTube.');
     if (!isIdea && sourceType !== 'youtube' && !/^https?:\/\//i.test(url.trim())) return setError('Добавьте корректную ссылку.');
+    if (isRavshTOK && isTikTokPhotoURL(url)) return setError('Фотопосты TikTok пока не поддерживаются — сейчас можно отправить видео TikTok или Reels.');
+    if (isRavshTOK && !isSupportedRavshTOKURL(url)) return setError('Нужна ссылка на конкретное видео TikTok или Instagram Reels.');
     if ((isIdea || sourceType !== 'youtube') && !title.trim()) return setError('Добавьте название предложения.');
-    if (!isIdea && !category) return setError('Выберите категорию.');
+    if (!isIdea && !isRavshTOK && !category) return setError('Выберите категорию.');
     if (trailerCategory && !/^https:\/\/(?:www\.)?kinopoisk\.ru\//i.test(movie.url.trim())) return setError('Для фильма добавьте корректную ссылку на Кинопоиск.');
     if (isDuplicate(state.videos, youtubeId)) return setError('Это видео уже есть в предложке.');
-    if (count >= state.settings.dailyLimit) return setError(`Достигнут лимит: ${state.settings.dailyLimit} отправки за 24 часа.`);
+    if (count >= dailyLimit) return setError(`Достигнут лимит: ${dailyLimit} отправки за 24 часа.`);
     setSubmitting(true);
     try {
       if (comment.trim().length > state.settings.commentLimit) return setError(`Пожелание должно занимать не более ${state.settings.commentLimit} символов.`);
       const video = await onSubmit({
-        contentKind,
+        contentKind: isIdea ? 'stream_idea' : 'video',
         sourceType: isIdea ? 'idea' : sourceType,
         url: isIdea ? '' : url,
         title: title.trim(),
-        category: isIdea ? 'Идеи для стрима' : category,
+        category: isIdea ? 'Идеи для стрима' : isRavshTOK ? 'Без категории' : category,
         comment: comment.trim(),
         movie: !isIdea && trailerCategory ? movie : null,
       });
       setSentId(video.id);
-      notify('Видео добавлено в очередь модерации');
+      notify(isIdea ? 'Идея отправлена на модерацию' : isRavshTOK ? 'Ролик отправлен в очередь RavshTOK' : 'Видео добавлено в очередь модерации');
     } catch (submissionError) {
       setError(submissionError.message || 'Не удалось отправить видео');
     } finally {
@@ -1837,8 +1900,11 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
           <button className="ghost-btn" onClick={() => navigate('community')}>Назад в предложку</button>
         </section>
         <section className="submission-kind-picker">
-          <button className="submission-kind-card" onClick={() => setContentKind('video')}>
-            <Play size={30} /><span>ВИДЕО</span><strong>YouTube, TikTok, Instagram или другая ссылка</strong><small>Выберите источник и категорию, затем прикрепите ссылку.</small>
+          <button className="submission-kind-card" onClick={() => { setContentKind('video'); setSourceType('youtube'); }}>
+            <Play size={30} /><span>ВИДЕО</span><strong>YouTube или другая ссылка</strong><small>Предложите обычное видео, трейлер, фильм или другой материал.</small>
+          </button>
+          <button className="submission-kind-card ravshtok" onClick={() => { setContentKind('short_video'); setSourceType('short_video'); }}>
+            <Smartphone size={30} /><span>RAVSHTOK</span><strong>TikTok или Reels</strong><small>Ролик пройдёт модерацию и появится прямо в вертикальной ленте.</small>
           </button>
           <button className="submission-kind-card idea" onClick={() => setContentKind('stream_idea')}>
             <Lightbulb size={30} /><span>ИДЕЯ ДЛЯ СТРИМА</span><strong>Тема, рубрика, челлендж или формат</strong><small>Опишите идею — она появится в отдельном разделе предложки.</small>
@@ -1873,8 +1939,8 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
       <section className="page-heading">
         <div>
           <div className="eyebrow">НОВАЯ ОТПРАВКА</div>
-          <h1>{isIdea ? 'Предложить идею для стрима' : 'Предложить видео'}</h1>
-          <p>{isIdea ? 'Опишите идею — пользователи смогут увидеть и оценить её в предложке' : 'Выберите источник, категорию и прикрепите ссылку'}</p>
+          <h1>{isIdea ? 'Предложить идею для стрима' : isRavshTOK ? 'Добавить ролик в RavshTOK' : 'Предложить видео'}</h1>
+          <p>{isIdea ? 'Опишите идею — пользователи смогут увидеть и оценить её в предложке' : isRavshTOK ? 'Прикрепите ссылку TikTok или Instagram Reels — после модерации ролик появится в ленте' : 'Выберите источник, категорию и прикрепите ссылку'}</p>
         </div>
         <button className="ghost-btn" onClick={() => navigate('community')}>Назад к ленте</button>
       </section>
@@ -1883,20 +1949,19 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
           <div className="panel-head">
             <div>
               <span className="panel-kicker">ШАГ 1 ИЗ 2</span>
-              <h2>Ссылка и категория</h2>
+              <h2>{isRavshTOK ? 'Ссылка на ролик' : 'Ссылка и категория'}</h2>
             </div>
             <span className="limit">
-              <Clock3 size={14} /> {count} из {state.settings.dailyLimit} за 24 часа
+              <Clock3 size={14} /> {count} из {dailyLimit} за 24 часа
             </span>
           </div>
-          {!isIdea && <div className="source-type-picker" role="group" aria-label="Источник видео">
+          {!isIdea && !isRavshTOK && <div className="source-type-picker" role="group" aria-label="Источник видео">
             {[
               ['youtube', 'YouTube'],
-              ['short_video', 'TikTok / Instagram'],
               ['external', 'Другая ссылка'],
             ].map(([value, label]) => <button type="button" key={value} className={sourceType === value ? 'selected' : ''} onClick={() => { setSourceType(value); setUrl(''); }}>{label}</button>)}
           </div>}
-          {!isIdea && <label>
+          {!isIdea && !isRavshTOK && <label>
             Категория
             <select value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="">Выберите категорию</option>
@@ -1945,7 +2010,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
           )}
           {error && <div className="form-error" role="alert">{error}</div>}
           <button className="primary-btn full" type="submit" disabled={submitting}>
-            {submitting ? 'Отправляем…' : 'Проверить и отправить'} <ArrowUpRight size={15} />
+            {submitting ? 'Отправляем…' : isRavshTOK ? 'Отправить в RavshTOK' : 'Проверить и отправить'} <ArrowUpRight size={15} />
           </button>
           <p className="form-note">
             <ShieldCheck size={14} /> Локальная версия проверяет формат, дубликаты и суточный лимит.
@@ -1979,7 +2044,7 @@ function SubmitView({ state, actor, navigate, notify, onSubmit }) {
             <h3>Перед отправкой</h3>
             <p><Check size={14} /> {isIdea ? 'Сформулируйте понятное название идеи' : 'Ссылка должна открываться без специального доступа'}</p>
             <p><Check size={14} /> Предложение сначала проверит модератор</p>
-            <p><Check size={14} /> Максимум {state.settings.dailyLimit} предложений за 24 часа</p>
+            <p><Check size={14} /> Максимум {dailyLimit} {isRavshTOK ? 'роликов RavshTOK' : 'предложений'} за 24 часа</p>
           </div>
         </section>
       </form>
@@ -2029,10 +2094,14 @@ function ProfileView({ videos, actor, navigate }) {
             <Thumb video={video} />
             <div className="submission-info">
               <strong>{video.title}</strong>
-              <span>{video.category} · {new Date(video.createdAt).toLocaleString('ru-RU')}</span>
+              <span>{video.sourceType === 'short_video' ? 'RavshTOK' : video.category} · {new Date(video.createdAt).toLocaleString('ru-RU')}</span>
             </div>
             <span className={`status ${video.status}`}>{STATUS_LABELS[video.status]}{video.watched && <small>{video.contentKind === 'stream_idea' ? 'Реализовано' : 'Отсмотрено'}</small>}</span>
-            <span className="decision">{profileDecisionText(video)}</span>
+            <div className="submission-decision">
+              {video.sourceType === 'short_video' && video.status === 'approved'
+                ? <RavshTOKMediaState video={video} detailed />
+                : <span className="decision">{profileDecisionText(video)}</span>}
+            </div>
           </div>
         ))}
         {!filtered.length && <div className="compact-empty">В этом разделе пока нет видео</div>}
@@ -2212,11 +2281,15 @@ function ModeratorMovieEditor({ video, onSave, notify }) {
 function ModerationView({ state, role, onDecision, onWatched, onDelete, onCategoryChange, onContentUpdate, onMovieUpdate, notify }) {
   const [tab, setTab] = useState('pending');
   const [kind, setKind] = useState('all');
-  const items = state.videos.filter((video) => video.status === tab && (kind === 'all' || (video.contentKind || 'video') === kind));
+  const matchesKind = useCallback((video, value = kind) => value === 'all'
+    || (value === 'ravshtok' && video.sourceType === 'short_video')
+    || (value === 'video' && (video.contentKind || 'video') === 'video' && video.sourceType !== 'short_video')
+    || (value === 'stream_idea' && video.contentKind === 'stream_idea'), [kind]);
+  const items = state.videos.filter((video) => video.status === tab && matchesKind(video));
   const [selectedId, setSelectedId] = useState(items[0]?.id);
   const [comment, setComment] = useState('');
   const [deleteArmed, setDeleteArmed] = useState(false);
-  const selected = state.videos.find((video) => video.id === selectedId && video.status === tab) || items[0];
+  const selected = state.videos.find((video) => video.id === selectedId && video.status === tab && matchesKind(video)) || items[0];
 
   useEffect(() => {
     if (!selected && items[0]) setSelectedId(items[0].id);
@@ -2253,8 +2326,9 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
             {[
               ['all', 'Все'],
               ['video', 'Видео'],
+              ['ravshtok', 'RavshTOK'],
               ['stream_idea', 'Идеи'],
-            ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => { setKind(value); setSelectedId(state.videos.find((video) => video.status === tab && (value === 'all' || (video.contentKind || 'video') === value))?.id); }}>{label}</button>)}
+            ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => { setKind(value); setSelectedId(state.videos.find((video) => video.status === tab && matchesKind(video, value))?.id); }}>{label}</button>)}
           </div>
           <div className="queue-tabs">
             {[
@@ -2267,10 +2341,10 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
                 className={tab === status ? 'selected' : ''}
                 onClick={() => {
                   setTab(status);
-                  setSelectedId(state.videos.find((video) => video.status === status)?.id);
+                  setSelectedId(state.videos.find((video) => video.status === status && matchesKind(video))?.id);
                 }}
               >
-                {label} <span>{state.videos.filter((video) => video.status === status).length}</span>
+                {label} <span>{state.videos.filter((video) => video.status === status && matchesKind(video)).length}</span>
               </button>
             ))}
           </div>
@@ -2300,11 +2374,12 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
               <span className="panel-kicker">КОММЕНТАРИЙ ПОЛЬЗОВАТЕЛЯ</span>
               <p>«{selected.submitterComment || 'Комментарий не оставлен'}»</p>
               <div className="meta-grid">
-                <span>Категория <b>{selected.category}</b></span>
-                <span>Тип <b>{selected.contentKind === 'stream_idea' ? 'Идея для стрима' : selected.sourceType === 'short_video' ? 'TikTok / Instagram' : selected.sourceType === 'external' ? 'Другая ссылка' : 'YouTube'}</b></span>
+                {selected.sourceType !== 'short_video' && <span>Категория <b>{selected.category}</b></span>}
+                <span>Тип <b>{selected.contentKind === 'stream_idea' ? 'Идея для стрима' : selected.sourceType === 'short_video' ? 'TikTok / Reels' : selected.sourceType === 'external' ? 'Другая ссылка' : 'YouTube'}</b></span>
                 {selected.contentKind !== 'stream_idea' && <span>Источник <b>{selected.channel}{selected.sourceType === 'youtube' ? ` · ${selected.views} просмотров` : ''}</b></span>}
                 <span>Отправитель <b>{selected.author}</b></span>
               </div>
+              {selected.sourceType === 'short_video' && <RavshTOKMediaState video={selected} detailed />}
             </div>
             <ModeratorContentEditor video={selected} onSave={onContentUpdate} notify={notify} />
             <ModeratorMovieEditor video={selected} onSave={onMovieUpdate} notify={notify} />
@@ -2338,12 +2413,12 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
               </div>
             )}
             <div className="video-management">
-              <label>
+              {selected.sourceType !== 'short_video' && <label>
                 Категория
                 <select value={selected.category} onChange={(event) => onCategoryChange(selected.id, event.target.value)}>
                   {state.categories.map((category) => <option key={category}>{category}</option>)}
                 </select>
-              </label>
+              </label>}
               {selected.status === 'rejected' && (
                 <button className="outline-btn" onClick={() => decide('pending')}>Вернуть на рассмотрение</button>
               )}
@@ -2692,6 +2767,10 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
             <input type="number" min="1" max="20" value={settings.dailyLimit} onChange={(event) => setSettings({ ...settings, dailyLimit: Number(event.target.value) })} />
           </label>
           <label>
+            Лимит TikTok / Reels за 24 часа
+            <input type="number" min="1" max="100" value={settings.ravshtokDailyLimit} onChange={(event) => setSettings({ ...settings, ravshtokDailyLimit: Number(event.target.value) })} />
+          </label>
+          <label>
             Максимальный комментарий
             <input type="number" min="100" max="2000" value={settings.commentLimit} onChange={(event) => setSettings({ ...settings, commentLimit: Number(event.target.value) })} />
           </label>
@@ -2764,6 +2843,263 @@ function AccessDenied({ role, onAccess }) {
         <p>Войдите через Twitch. Если вам выданы права модератора, раздел появится автоматически.</p>
         <button className="primary-btn" onClick={onAccess}>Войти через Twitch</button>
       </div>
+    </main>
+  );
+}
+
+function RavshTOKView({ actor, role, onLogin, notify }) {
+  const [mode, setMode] = useState(role === 'guest' ? 'all' : 'new');
+  const [platform, setPlatform] = useState('all');
+  const [sort, setSort] = useState('new');
+  const [items, setItems] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [muted, setMuted] = useState(true);
+  const [volume, setVolume] = useState(() => {
+    const saved = Number(window.localStorage.getItem('ravshtok-volume'));
+    return Number.isFinite(saved) && saved >= 0 && saved <= 1 ? saved : 0.8;
+  });
+  const [playback, setPlayback] = useState({ current: 0, duration: 0 });
+  const feedRef = useRef(null);
+  const videoRefs = useRef(new Map());
+  const viewedThisSessionRef = useRef(new Set());
+  const hadActorRef = useRef(Boolean(actor));
+
+  useEffect(() => {
+    if (!hadActorRef.current && actor) {
+      hadActorRef.current = true;
+      setMode('new');
+    }
+  }, [actor]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    setItems([]);
+    setHasMore(false);
+    setActiveIndex(0);
+    feedRef.current?.scrollTo({ top: 0 });
+    api.loadRavshTOK({ mode, platform, sort, offset: 0, limit: 12 })
+      .then((result) => {
+        if (!active) return;
+        setItems(result.items);
+        setHasMore(result.hasMore);
+      })
+      .catch((loadError) => active && setError(loadError.message))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [mode, platform, sort]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await api.loadRavshTOK({ mode, platform, sort, offset: items.length, limit: 12 });
+      setItems((current) => [...current, ...result.items.filter((item) => !current.some((known) => known.id === item.id))]);
+      setHasMore(result.hasMore);
+    } catch (loadError) {
+      notify(loadError.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, items.length, loading, loadingMore, mode, notify, platform, sort]);
+
+  const goTo = useCallback((index) => {
+    const feed = feedRef.current;
+    if (!feed || !items.length) return;
+    const next = Math.max(0, Math.min(index, items.length - 1));
+    const slide = feed.children[next];
+    if (slide) feed.scrollTo({ top: slide.offsetTop, behavior: 'smooth' });
+    setActiveIndex(next);
+  }, [items.length]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+      if (event.key === 'ArrowDown' || event.key === 'PageDown') {
+        event.preventDefault();
+        goTo(activeIndex + 1);
+      } else if (event.key === 'ArrowUp' || event.key === 'PageUp') {
+        event.preventDefault();
+        goTo(activeIndex - 1);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeIndex, goTo]);
+
+  useEffect(() => {
+    videoRefs.current.forEach((video, id) => {
+      const active = items[activeIndex]?.id === id;
+      video.volume = volume;
+      video.muted = muted || volume === 0;
+      if (active) video.play().catch(() => {});
+      else video.pause();
+    });
+    const activeVideo = videoRefs.current.get(items[activeIndex]?.id);
+    setPlayback({
+      current: Number(activeVideo?.currentTime) || 0,
+      duration: Number(activeVideo?.duration) || Number(items[activeIndex]?.durationSeconds) || 0,
+    });
+    if (activeIndex >= items.length - 3) loadMore();
+  }, [activeIndex, items, loadMore, muted, volume]);
+
+  useEffect(() => {
+    window.localStorage.setItem('ravshtok-volume', String(volume));
+  }, [volume]);
+
+  const updatePlayback = (itemId, video) => {
+    if (items[activeIndex]?.id !== itemId) return;
+    setPlayback({
+      current: Number(video.currentTime) || 0,
+      duration: Number(video.duration) || Number(items[activeIndex]?.durationSeconds) || 0,
+    });
+  };
+
+  const seekActiveVideo = (nextTime) => {
+    const video = videoRefs.current.get(items[activeIndex]?.id);
+    if (!video) return;
+    video.currentTime = nextTime;
+    setPlayback((current) => ({ ...current, current: nextTime }));
+  };
+
+  const changeVolume = (nextVolume) => {
+    const safeVolume = Math.max(0, Math.min(1, nextVolume));
+    setVolume(safeVolume);
+    setMuted(safeVolume === 0);
+  };
+
+  const toggleSound = () => {
+    if (muted && volume === 0) setVolume(0.8);
+    setMuted((value) => !value);
+  };
+
+  useEffect(() => {
+    const item = items[activeIndex];
+    if (!actor || !item || viewedThisSessionRef.current.has(item.id)) return undefined;
+    const timer = window.setTimeout(async () => {
+      try {
+        await api.markRavshTOKViewed(item.id);
+        viewedThisSessionRef.current.add(item.id);
+        setItems((current) => current.map((entry) => entry.id === item.id
+          ? { ...entry, userViewed: true, streamerWatched: role === 'owner' || entry.streamerWatched }
+          : entry));
+      } catch {
+        // Повторим отметку, если пользователь снова задержится на ролике.
+      }
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [activeIndex, actor, items, role]);
+
+  const onScroll = () => {
+    const feed = feedRef.current;
+    if (!feed || !feed.children.length) return;
+    const center = feed.scrollTop + feed.clientHeight / 2;
+    let closest = 0;
+    let distance = Number.POSITIVE_INFINITY;
+    [...feed.querySelectorAll('.ravshtok-slide')].forEach((slide, index) => {
+      const currentDistance = Math.abs(slide.offsetTop + slide.clientHeight / 2 - center);
+      if (currentDistance < distance) {
+        closest = index;
+        distance = currentDistance;
+      }
+    });
+    if (closest !== activeIndex) setActiveIndex(closest);
+  };
+
+  const voteItem = async (item, value) => {
+    if (!actor) {
+      onLogin();
+      return;
+    }
+    try {
+      const result = await api.voteRavshTOK(item.id, value);
+      setItems((current) => current.map((entry) => entry.id === item.id ? {
+        ...entry,
+        likes: Number(result.likes) || 0,
+        dislikes: Number(result.dislikes) || 0,
+        userVote: Number(result.user_vote) || 0,
+      } : entry));
+    } catch (voteError) {
+      notify(voteError.message);
+    }
+  };
+
+  return (
+    <main className="ravshtok-page">
+      <header className="ravshtok-toolbar">
+        <div className="ravshtok-brand"><Smartphone size={18} /><span><b>RavshTOK</b><small>Лента предложенных TikTok и Reels</small></span></div>
+        <div className="ravshtok-filters" aria-label="Фильтры RavshTOK">
+          <div>{[['new', 'Новые'], ['watched', 'Отсмотренные'], ['all', 'Все']].map(([value, label]) => <button key={value} className={mode === value ? 'selected' : ''} onClick={() => { if (!actor && value !== 'all') onLogin(); else setMode(value); }}>{label}</button>)}</div>
+          <select value={platform} onChange={(event) => setPlatform(event.target.value)} aria-label="Площадка"><option value="all">Все площадки</option><option value="tiktok">TikTok</option><option value="instagram">Reels</option></select>
+          <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Сортировка"><option value="new">По новизне</option><option value="popular">По оценкам</option></select>
+        </div>
+      </header>
+
+      {loading && <div className="ravshtok-state"><span className="clips-loader" /><b>Готовим ленту</b><small>Первый ролик появится через пару секунд</small></div>}
+      {!loading && error && <div className="ravshtok-state error"><ShieldAlert size={28} /><b>Не удалось открыть RavshTOK</b><small>{error}</small></div>}
+      {!loading && !error && !items.length && <div className="ravshtok-state"><Smartphone size={30} /><b>{mode === 'new' ? 'Новых роликов пока нет' : 'В этой подборке пока пусто'}</b><small>Одобренные видео появятся здесь после фоновой подготовки.</small></div>}
+
+      {!loading && !error && items.length > 0 && <div className="ravshtok-feed" ref={feedRef} onScroll={onScroll}>
+        {items.map((item, index) => (
+          <article className="ravshtok-slide" key={item.id} aria-label={`${index + 1} из ${items.length}`}>
+            <div className="ravshtok-video-stage">
+              <video
+                ref={(node) => { if (node) videoRefs.current.set(item.id, node); else videoRefs.current.delete(item.id); }}
+                src={item.playbackUrl}
+                poster={item.posterUrl}
+                preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'metadata'}
+                playsInline
+                loop
+                muted={muted}
+                onLoadedMetadata={(event) => updatePlayback(item.id, event.currentTarget)}
+                onDurationChange={(event) => updatePlayback(item.id, event.currentTarget)}
+                onTimeUpdate={(event) => updatePlayback(item.id, event.currentTarget)}
+                onClick={(event) => { if (event.currentTarget.paused) event.currentTarget.play().catch(() => {}); else event.currentTarget.pause(); }}
+              />
+              <div className="ravshtok-shade" />
+              <div className="ravshtok-copy">
+                <div className="ravshtok-author"><Avatar small src={item.author.avatarUrl} name={item.author.name} /><b>{item.author.name}</b><span>{item.platform === 'instagram' ? 'REELS' : 'TIKTOK'}</span>{(item.userViewed || item.streamerWatched) && <em>Уже смотрели</em>}</div>
+                <h1>{item.title}</h1>
+                {item.description && <p>{item.description}</p>}
+                <a href={item.sourceUrl} target="_blank" rel="noreferrer">Открыть оригинал <ExternalLink size={13} /></a>
+              </div>
+              <div className="ravshtok-actions">
+                <button className={item.userVote === 1 ? 'selected' : ''} onClick={() => voteItem(item, 1)} aria-label="Нравится"><ThumbsUp size={21} /><b>{item.likes}</b></button>
+                <button className={item.userVote === -1 ? 'selected dislike' : ''} onClick={() => voteItem(item, -1)} aria-label="Не нравится"><ThumbsDown size={21} /><b>{item.dislikes}</b></button>
+                <div className="ravshtok-volume-control">
+                  <button onClick={toggleSound} aria-label={muted || volume === 0 ? 'Включить звук' : 'Выключить звук'}>{muted || volume === 0 ? <VolumeX size={19} /> : <Volume2 size={19} />}</button>
+                  <input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={(event) => changeVolume(Number(event.target.value))} aria-label="Громкость" />
+                </div>
+              </div>
+              {index === activeIndex && <div className="ravshtok-player-controls">
+                <input
+                  className="ravshtok-progress"
+                  type="range"
+                  min="0"
+                  max={Math.max(playback.duration || item.durationSeconds || 0, 0.1)}
+                  step="0.1"
+                  value={Math.min(playback.current, playback.duration || item.durationSeconds || 0)}
+                  onChange={(event) => seekActiveVideo(Number(event.target.value))}
+                  aria-label="Перемотка ролика"
+                />
+                <span>{formatMediaTime(playback.current)} / {formatMediaTime(playback.duration || item.durationSeconds)}</span>
+              </div>}
+            </div>
+          </article>
+        ))}
+        {loadingMore && <div className="ravshtok-loading-more"><span className="clips-loader" /></div>}
+      </div>}
+
+      {items.length > 0 && <div className="ravshtok-navigation" aria-label="Навигация по роликам">
+        <button disabled={activeIndex === 0} onClick={() => goTo(activeIndex - 1)} aria-label="Предыдущий ролик"><ArrowUp size={21} /></button>
+        <span>{activeIndex + 1}</span>
+        <button disabled={activeIndex >= items.length - 1 && !hasMore} onClick={() => { if (activeIndex >= items.length - 1) loadMore(); else goTo(activeIndex + 1); }} aria-label="Следующий ролик"><ArrowDown size={21} /></button>
+      </div>}
     </main>
   );
 }
@@ -3000,35 +3336,67 @@ function App() {
       state.videos.filter((video) => video.status === 'pending').map((video) => video.id),
     );
 
-    const pollPending = async () => {
+    const pollModeration = async () => {
       try {
-        const pending = await api.loadPendingSubmissions();
+        const batches = await Promise.all(['pending', 'approved', 'rejected'].map(api.loadModerationSubmissions));
         if (!active) return;
+        const refreshed = batches.flat();
+        const pending = batches[0];
         const additions = newPendingSubmissions(pendingSubmissionIdsRef.current, pending);
         pendingSubmissionIdsRef.current = new Set(pending.map((video) => video.id));
-        if (!additions.length) return;
-
         setState((current) => {
+          const updates = new Map(refreshed.map((video) => [video.id, video]));
           const existingIds = new Set(current.videos.map((video) => video.id));
           return {
             ...current,
-            videos: [...additions.filter((video) => !existingIds.has(video.id)), ...current.videos],
+            videos: [
+              ...refreshed.filter((video) => !existingIds.has(video.id)),
+              ...current.videos.map((video) => updates.get(video.id) || video),
+            ],
           };
         });
-        playNewSubmissionSound(moderationAudioRef);
-        notify(additions.length === 1
-          ? 'Новое видео поступило на рассмотрение'
-          : `Новых видео на рассмотрении: ${additions.length}`);
+        if (additions.length) {
+          playNewSubmissionSound(moderationAudioRef);
+          notify(additions.length === 1
+            ? 'Новое видео поступило на рассмотрение'
+            : `Новых видео на рассмотрении: ${additions.length}`);
+        }
       } catch {
         // Следующая фоновая проверка повторит запрос без вмешательства пользователя.
       }
     };
 
-    const timer = window.setInterval(pollPending, MODERATION_POLL_INTERVAL);
+    const timer = window.setInterval(pollModeration, MODERATION_POLL_INTERVAL);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
+  }, [apiReady, role, notify]);
+
+  useEffect(() => {
+    if (role !== 'user' || !apiReady) return undefined;
+    let active = true;
+    const pollOwnSubmissions = async () => {
+      try {
+        const refreshed = await api.loadMySubmissions();
+        if (!active) return;
+        setState((current) => {
+          const updates = new Map(refreshed.map((video) => [video.id, video]));
+          const existingIds = new Set(current.videos.map((video) => video.id));
+          return {
+            ...current,
+            videos: [
+              ...refreshed.filter((video) => !existingIds.has(video.id)),
+              ...current.videos.map((video) => updates.get(video.id) || video),
+            ],
+          };
+        });
+      } catch {
+        // Статус очереди обновится при следующей проверке.
+      }
+    };
+    const timer = window.setInterval(pollOwnSubmissions, MODERATION_POLL_INTERVAL);
+    return () => { active = false; window.clearInterval(timer); };
   }, [apiReady, role]);
 
   const vote = async (id, direction) => {
@@ -3253,6 +3621,7 @@ function App() {
   let page;
   if (route === 'home') page = <StreamerHome streamer={state.streamer} navigate={navigate} />;
   else if (route === 'clips') page = <TwitchClipsView />;
+  else if (route === 'ravshtok') page = <RavshTOKView actor={sessionUser} role={role} onLogin={openAuth} notify={notify} />;
   else if (route === 'vods') page = <TwitchVodsView navigate={navigate} />;
   else if (route === 'rating') page = <ViewerRatingView actor={sessionUser} role={role} onLogin={openAuth} />;
   else if (route.startsWith('vod/')) page = <TwitchVodView videoId={route.slice(4)} navigate={navigate} />;
@@ -3271,10 +3640,10 @@ function App() {
   return (
     <div className="app-shell">
       <Sidebar route={route} navigate={navigate} role={role} unread={unread} actor={actor} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-      <div className="app-body">
+      <div className={`app-body ${route === 'ravshtok' ? 'ravshtok-body' : ''}`}>
         <Topbar role={role} search={search} setSearch={setSearch} navigate={navigate} openAuth={openAuth} onSignOut={signOut} unread={unread} actor={actor} />
         {page}
-        <SiteFooter navigate={navigate} />
+        {route !== 'ravshtok' && <SiteFooter navigate={navigate} />}
       </div>
       {authOpen && <AuthModal onContinue={localTwitchLogin} onClose={() => setAuthOpen(false)} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={15} /> {toast}</div>}
