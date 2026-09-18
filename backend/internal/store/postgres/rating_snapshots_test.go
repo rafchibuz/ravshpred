@@ -78,6 +78,14 @@ func TestPendingRatingSnapshotJobsSkipIdleAndTargetChangedChannel(t *testing.T) 
 		t.Fatal(err)
 	}
 	jobs, err = s.pendingRatingSnapshotJobs(ctx)
+	if err != nil || len(jobs) != 0 {
+		t.Fatalf("chat messages alone must not continuously invalidate snapshots: %+v %v", jobs, err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO twitch_rating_streams(id,channel_login,started_at,ended_at,observed_live)
+		VALUES('completed-stream','ravshann',now()-interval '2 hours',now()+interval '1 minute',true)`); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err = s.pendingRatingSnapshotJobs(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +96,29 @@ func TestPendingRatingSnapshotJobsSkipIdleAndTargetChangedChannel(t *testing.T) 
 		if job.channel == "ravshanbtw" {
 			t.Fatalf("unchanged channel scheduled for refresh: %+v", job)
 		}
+	}
+}
+
+func TestRatingSnapshotRefreshDeferred(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name         string
+		state        ratingSnapshotRefreshState
+		wantDeferred bool
+		wantReason   string
+	}{
+		{name: "idle", state: ratingSnapshotRefreshState{lastLifecycleEvent: now.Add(-time.Hour)}},
+		{name: "live", state: ratingSnapshotRefreshState{activeStream: true, lastLifecycleEvent: now.Add(-time.Hour)}, wantDeferred: true, wantReason: "stream_live"},
+		{name: "cooldown", state: ratingSnapshotRefreshState{lastLifecycleEvent: now.Add(-time.Minute)}, wantDeferred: true, wantReason: "post_stream_cooldown"},
+		{name: "cooldown complete", state: ratingSnapshotRefreshState{lastLifecycleEvent: now.Add(-ratingSnapshotQuietPeriod)}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			deferred, reason := ratingSnapshotRefreshDeferred(test.state, now)
+			if deferred != test.wantDeferred || reason != test.wantReason {
+				t.Fatalf("got (%v, %q), want (%v, %q)", deferred, reason, test.wantDeferred, test.wantReason)
+			}
+		})
 	}
 }
 

@@ -185,29 +185,81 @@ func (s *Store) publishRatingSnapshot(ctx context.Context, key string, result do
 	return tx.Commit(ctx)
 }
 
-var ratingSnapshotPeriods = []string{"30d", "last_stream", "1d", "7d", "1y", "90d", "all"}
+var ratingSnapshotPeriods = []string{"last_stream", "1d", "7d", "30d", "90d", "1y", "all"}
 var ratingSnapshotChannels = []string{"all", "ravshann", "ravshanbtw"}
+
+const (
+	ratingSnapshotPollInterval = time.Minute
+	ratingSnapshotQuietPeriod  = 5 * time.Minute
+	ratingSnapshotJobPause     = 15 * time.Second
+)
 
 type ratingSnapshotJob struct {
 	channel string
 	period  string
 }
 
-// ratingSourceUpdatedAt is intentionally cheap: collector state has only two
-// rows and the stream table is small. last_event_at advances for every accepted
-// chat event, while stream timestamps cover online/offline changes without chat.
+// ratingSourceUpdatedAt follows stream lifecycle changes rather than chat
+// messages. Chat messages are collected only while a stream is active, so the
+// final ended_at update is the single watermark that should publish them. Using
+// last_event_at here would make every message invalidate all rating periods and
+// keep PostgreSQL continuously rescoring the full history during a busy stream.
 func (s *Store) ratingSourceUpdatedAt(ctx context.Context, channel string) (time.Time, error) {
 	var result time.Time
 	err := s.pool.QueryRow(ctx, `
 		SELECT GREATEST(
-			COALESCE((SELECT max(last_event_at) FROM twitch_rating_state
-				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz),
 			COALESCE((SELECT max(started_at) FROM twitch_rating_streams
 				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz),
 			COALESCE((SELECT max(ended_at) FROM twitch_rating_streams
 				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz)
 		)`, channel).Scan(&result)
 	return result, err
+}
+
+type ratingSnapshotRefreshState struct {
+	activeStream       bool
+	lastLifecycleEvent time.Time
+}
+
+// ratingSnapshotState is a cheap guard in front of the expensive scoring SQL.
+// A stale open stream older than 48 hours is ignored so an interrupted collector
+// cannot disable snapshot publication forever.
+func (s *Store) ratingSnapshotState(ctx context.Context) (ratingSnapshotRefreshState, error) {
+	var state ratingSnapshotRefreshState
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+			EXISTS (
+				SELECT 1 FROM twitch_rating_streams
+				WHERE observed_live AND ended_at IS NULL
+				  AND started_at > now()-interval '48 hours'
+			),
+			GREATEST(
+				COALESCE(max(started_at), 'epoch'::timestamptz),
+				COALESCE(max(ended_at), 'epoch'::timestamptz)
+			)
+		FROM twitch_rating_streams`).Scan(&state.activeStream, &state.lastLifecycleEvent)
+	return state, err
+}
+
+func ratingSnapshotRefreshDeferred(state ratingSnapshotRefreshState, now time.Time) (bool, string) {
+	if state.activeStream {
+		return true, "stream_live"
+	}
+	if state.lastLifecycleEvent.After(now.Add(-ratingSnapshotQuietPeriod)) {
+		return true, "post_stream_cooldown"
+	}
+	return false, ""
+}
+
+func waitForRatingSnapshotWorker(ctx context.Context, duration time.Duration) bool {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // pendingRatingSnapshotJobs compares the source watermark with persisted
@@ -276,6 +328,22 @@ func (s *Store) RunRatingSnapshots(ctx context.Context, logger *slog.Logger) {
 	defer pool.Close()
 	worker := &Store{pool: pool}
 	for ctx.Err() == nil {
+		state, err := worker.ratingSnapshotState(ctx)
+		if err != nil {
+			logger.Warn("rating snapshot state check failed", "error", err)
+			if !waitForRatingSnapshotWorker(ctx, ratingSnapshotPollInterval) {
+				return
+			}
+			continue
+		}
+		if deferred, reason := ratingSnapshotRefreshDeferred(state, time.Now()); deferred {
+			logger.Debug("rating snapshot refresh deferred", "reason", reason)
+			if !waitForRatingSnapshotWorker(ctx, ratingSnapshotPollInterval) {
+				return
+			}
+			continue
+		}
+
 		jobs, err := worker.pendingRatingSnapshotJobs(ctx)
 		if err != nil {
 			logger.Warn("rating snapshot change check failed", "error", err)
@@ -286,20 +354,30 @@ func (s *Store) RunRatingSnapshots(ctx context.Context, logger *slog.Logger) {
 			if ctx.Err() != nil {
 				return
 			}
+			state, err := worker.ratingSnapshotState(ctx)
+			if err != nil {
+				logger.Warn("rating snapshot state recheck failed", "error", err)
+				break
+			}
+			if deferred, reason := ratingSnapshotRefreshDeferred(state, time.Now()); deferred {
+				logger.Info("rating snapshot batch paused", "reason", reason)
+				break
+			}
 			started := time.Now()
 			jobCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-			err := worker.refreshRatingSnapshot(jobCtx, job.channel, job.period)
+			err = worker.refreshRatingSnapshot(jobCtx, job.channel, job.period)
 			cancel()
 			if err != nil {
 				logger.Warn("rating snapshot refresh failed", "channel", job.channel, "period", job.period, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 			} else {
 				logger.Info("rating snapshot refresh completed", "channel", job.channel, "period", job.period, "duration_ms", time.Since(started).Milliseconds())
 			}
+			if !waitForRatingSnapshotWorker(ctx, ratingSnapshotJobPause) {
+				return
+			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForRatingSnapshotWorker(ctx, ratingSnapshotPollInterval) {
 			return
-		case <-time.After(time.Minute):
 		}
 	}
 }
