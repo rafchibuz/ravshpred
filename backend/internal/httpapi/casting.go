@@ -273,7 +273,7 @@ func (s *Server) replaceCastingJudges(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setCastingWinner(w http.ResponseWriter, r *http.Request) {
-	actor := s.require(w, r, "manage")
+	actor := s.requireCasting(w, r)
 	if actor == nil {
 		return
 	}

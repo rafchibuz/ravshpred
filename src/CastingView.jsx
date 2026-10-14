@@ -153,7 +153,7 @@ function RatingControl({ judges, scores, savingKey, canManage, onChange, onSaveJ
   );
 }
 
-function Ranking({ participants, judges, scores, winners, canManage, winnerSaving, onToggleWinner, onExport, onOpen, onBack }) {
+function Ranking({ participants, judges, scores, winners, winnerSaving, onToggleWinner, onExport, onOpen, onBack }) {
   const winnerSet = useMemo(() => new Set((winners || []).map(Number)), [winners]);
   const ranked = useMemo(() => participants
     .map((participant) => ({ ...participant, average: averageCastingScore(scores[participant.id]) }))
@@ -177,7 +177,7 @@ function Ranking({ participants, judges, scores, winners, canManage, winnerSavin
                   <em>{participant.average}<small>/10</small></em>
                   <ChevronRight size={18} />
                 </button>
-                {canManage ? <button className={`casting-winner-toggle ${winner ? 'selected' : ''}`} disabled={winnerSaving === participant.id} onClick={() => onToggleWinner(participant.id, !winner)}><Crown size={15} />{winner ? 'Победитель' : 'Выбрать'}</button> : winner ? <span className="casting-winner-badge"><Crown size={14} /> Победитель</span> : null}
+                <button className={`casting-winner-toggle ${winner ? 'selected' : ''}`} disabled={Boolean(winnerSaving)} onClick={() => onToggleWinner(participant.id, !winner)}><Crown size={15} />{winner ? 'Победитель' : 'Выбрать'}</button>
               </div>
             );
           })}
@@ -306,7 +306,7 @@ export function CastingView({ notify, canManage = false }) {
 
   return (
     <main className="casting-page">
-      {mode === 'ranking' ? <Ranking participants={participants} judges={judges} scores={scores} winners={winners} canManage={canManage} winnerSaving={winnerSaving} onToggleWinner={toggleWinner} onExport={downloadResults} onBack={() => setMode('review')} onOpen={(id) => { setActiveIndex(participants.findIndex((item) => item.id === id)); setVideoIndex(0); setMode('review'); }} /> : (
+      {mode === 'ranking' ? <Ranking participants={participants} judges={judges} scores={scores} winners={winners} winnerSaving={winnerSaving} onToggleWinner={toggleWinner} onExport={downloadResults} onBack={() => setMode('review')} onOpen={(id) => { setActiveIndex(participants.findIndex((item) => item.id === id)); setVideoIndex(0); setMode('review'); }} /> : (
         <>
           <div className="casting-layout">
             <div className="casting-column">{participant.sections.slice(0, 2).map((section, index) => <InfoSection key={section.title} section={section} index={index} />)}</div>
