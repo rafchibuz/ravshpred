@@ -17,6 +17,7 @@
     "vite": "latest"
   },
   "dependencies": {
-    "read-excel-file": "^9.3.12"
+    "read-excel-file": "^9.3.12",
+    "xlsx": "^0.18.5"
   }
 }

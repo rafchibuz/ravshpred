@@ -239,6 +239,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/owner/casting-reviewers/{id}", s.removeCastingReviewer)
 	mux.HandleFunc("POST /api/owner/casting-participants", s.replaceCastingParticipants)
 	mux.HandleFunc("PUT /api/owner/casting-judges", s.replaceCastingJudges)
+	mux.HandleFunc("PUT /api/owner/casting/{id}/winner", s.setCastingWinner)
 	mux.HandleFunc("DELETE /api/owner/categories/{id}", s.deleteCategory)
 	mux.HandleFunc("POST /api/owner/moderators", s.assignModerator)
 	mux.HandleFunc("GET /api/owner/moderators", s.listModerators)

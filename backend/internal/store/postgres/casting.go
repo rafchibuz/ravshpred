@@ -106,6 +106,9 @@ func (s *Store) ReplaceCastingParticipants(ctx context.Context, participants jso
 	if _, err = tx.Exec(ctx, `DELETE FROM casting_scores`); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, `DELETE FROM casting_winners`); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO casting_dataset(singleton,participants,uploaded_by,updated_at)
 		VALUES(TRUE,$1,$2,now())
@@ -195,4 +198,45 @@ func (s *Store) SetCastingScore(ctx context.Context, userID string, participantI
 		return store.ErrConflict
 	}
 	return nil
+}
+
+func (s *Store) CastingWinners(ctx context.Context) ([]int, error) {
+	rows, err := s.pool.Query(ctx, `SELECT participant_id FROM casting_winners ORDER BY participant_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]int, 0)
+	for rows.Next() {
+		var participantID int
+		if err := rows.Scan(&participantID); err != nil {
+			return nil, err
+		}
+		result = append(result, participantID)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SetCastingWinner(ctx context.Context, participantID int, selected bool, actorID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if selected {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO casting_winners(participant_id,selected_by) VALUES($1,$2)
+			ON CONFLICT(participant_id) DO UPDATE SET selected_by=EXCLUDED.selected_by,updated_at=now()`, participantID, actorID)
+	} else {
+		_, err = tx.Exec(ctx, `DELETE FROM casting_winners WHERE participant_id=$1`, participantID)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `
+		INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata)
+		VALUES($1,'set_casting_winner','casting_participant',$2::text,jsonb_build_object('selected',$3::boolean))`, actorID, participantID, selected); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

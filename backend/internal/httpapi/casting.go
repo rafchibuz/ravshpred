@@ -23,6 +23,8 @@ type castingStore interface {
 	ReplaceCastingJudgeNames(context.Context, []string, string) error
 	CastingScores(context.Context, string) (map[int]map[int]float64, error)
 	SetCastingScore(context.Context, string, int, int, float64) error
+	CastingWinners(context.Context) ([]int, error)
+	SetCastingWinner(context.Context, int, bool, string) error
 }
 
 type castingJudge struct {
@@ -162,7 +164,12 @@ func (s *Server) casting(w http.ResponseWriter, r *http.Request) {
 	for index, name := range judgeNames {
 		judges[index] = castingJudge{ID: index + 1, Name: name}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participants": visibleCastingParticipants(participants), "judges": judges, "scores": scores}})
+	winners, err := database.CastingWinners(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participants": visibleCastingParticipants(participants), "judges": judges, "scores": scores, "winners": winners}})
 }
 
 func (s *Server) setCastingScore(w http.ResponseWriter, r *http.Request) {
@@ -263,6 +270,50 @@ func (s *Server) replaceCastingJudges(w http.ResponseWriter, r *http.Request) {
 		judges[index] = castingJudge{ID: index + 1, Name: name}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": judges})
+}
+
+func (s *Server) setCastingWinner(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	participantID, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || participantID < 1 {
+		writeError(w, http.StatusBadRequest, "invalid_participant", "Участник не найден")
+		return
+	}
+	database, ok := s.store.(castingStore)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "casting_unavailable", "Кастинг временно недоступен")
+		return
+	}
+	participants, err := s.loadCastingParticipants(r.Context(), database)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	found := false
+	for _, participant := range participants {
+		if participant.ID == participantID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeError(w, http.StatusBadRequest, "invalid_participant", "Участник не найден")
+		return
+	}
+	var input struct {
+		Selected bool `json:"selected"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := database.SetCastingWinner(r.Context(), participantID, input.Selected, actor.User.ID); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participant_id": participantID, "selected": input.Selected}})
 }
 
 func (s *Server) replaceCastingParticipants(w http.ResponseWriter, r *http.Request) {

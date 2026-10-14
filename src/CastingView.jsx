@@ -5,6 +5,8 @@ import {
   Check,
   ChevronRight,
   ClipboardList,
+  Crown,
+  Download,
   ExternalLink,
   FileUp,
   Film,
@@ -18,6 +20,7 @@ import { parseYouTubeId } from './domain.js';
 import * as api from './api.js';
 import { importCastingWorkbook } from './castingImport.js';
 import { averageCastingScore, resizeCastingJudges } from './castingScores.js';
+import { exportCastingResults } from './castingExport.js';
 import './casting.css';
 
 const sectionIcons = [UserRound, Medal, Star, ShieldCheck, Trophy];
@@ -150,7 +153,8 @@ function RatingControl({ judges, scores, savingKey, canManage, onChange, onSaveJ
   );
 }
 
-function Ranking({ participants, scores, onOpen, onBack }) {
+function Ranking({ participants, judges, scores, winners, canManage, winnerSaving, onToggleWinner, onExport, onOpen, onBack }) {
+  const winnerSet = useMemo(() => new Set((winners || []).map(Number)), [winners]);
   const ranked = useMemo(() => participants
     .map((participant) => ({ ...participant, average: averageCastingScore(scores[participant.id]) }))
     .filter((participant) => participant.average > 0)
@@ -159,18 +163,24 @@ function Ranking({ participants, scores, onOpen, onBack }) {
     <section className="casting-ranking">
       <div className="casting-ranking-head">
         <div><span>ОБЩИЙ РЕЙТИНГ</span><h1>Оценённые участники</h1><p>Здесь отображаются общие оценки всех проверяющих. Последнее изменение оценки видят все.</p></div>
-        <div className="casting-ranking-actions"><strong>{ranked.length} из {participants.length}</strong><button onClick={onBack}><Film size={15} /> К анкетам</button></div>
+        <div className="casting-ranking-actions"><strong>{ranked.length} из {participants.length}</strong><button onClick={onExport}><Download size={15} /> Выгрузить Excel</button><button onClick={onBack}><Film size={15} /> К анкетам</button></div>
       </div>
       {!ranked.length ? <div className="casting-empty">Пока нет оценок. Вернитесь к просмотру заявок.</div> : (
         <div className="casting-ranking-list">
-          {ranked.map((participant, index) => (
-            <button key={participant.id} onClick={() => onOpen(participant.id)}>
-              <b className={index < 3 ? `place place-${index + 1}` : 'place'}>#{index + 1}</b>
-              <span><strong>{participant.full_name}</strong><small>@{participant.twitch} · {participant.city}</small></span>
-              <em>{participant.average}<small>/10</small></em>
-              <ChevronRight size={18} />
-            </button>
-          ))}
+          {ranked.map((participant, index) => {
+            const winner = winnerSet.has(Number(participant.id));
+            return (
+              <div className={`casting-ranking-row ${winner ? 'winner' : ''}`} key={participant.id}>
+                <button className="casting-ranking-open" onClick={() => onOpen(participant.id)}>
+                  <b className={index < 3 ? `place place-${index + 1}` : 'place'}>#{index + 1}</b>
+                  <span><strong>{participant.full_name}</strong><small>@{participant.twitch} · {participant.city}</small></span>
+                  <em>{participant.average}<small>/10</small></em>
+                  <ChevronRight size={18} />
+                </button>
+                {canManage ? <button className={`casting-winner-toggle ${winner ? 'selected' : ''}`} disabled={winnerSaving === participant.id} onClick={() => onToggleWinner(participant.id, !winner)}><Crown size={15} />{winner ? 'Победитель' : 'Выбрать'}</button> : winner ? <span className="casting-winner-badge"><Crown size={14} /> Победитель</span> : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
@@ -188,6 +198,7 @@ export function CastingView({ notify, canManage = false }) {
   const [videoIndex, setVideoIndex] = useState(0);
   const [mode, setMode] = useState('review');
   const [savingKey, setSavingKey] = useState('');
+  const [winnerSaving, setWinnerSaving] = useState(0);
   const [participantNumber, setParticipantNumber] = useState('1');
 
   useEffect(() => {
@@ -223,6 +234,7 @@ export function CastingView({ notify, canManage = false }) {
   const participants = payload.participants || [];
   const judges = payload.judges?.length ? payload.judges : [{ id: 1, name: 'Судья 1' }];
   const scores = payload.scores || {};
+  const winners = payload.winners || [];
   if (!participants.length) return <main className="casting-page casting-state"><FileUp size={34} /><h2>Участники ещё не загружены</h2><p>Владелец может загрузить Excel в панели управления.</p></main>;
   const displayedIndex = Math.max(0, Math.min(activeIndex, participants.length - 1));
   const participant = participants[displayedIndex];
@@ -267,10 +279,34 @@ export function CastingView({ notify, canManage = false }) {
       throw requestError;
     }
   };
+  const toggleWinner = async (participantId, selected) => {
+    if (winnerSaving) return;
+    const previous = winners;
+    const next = selected ? [...new Set([...winners, participantId])] : winners.filter((id) => Number(id) !== Number(participantId));
+    setPayload((current) => ({ ...current, winners: next }));
+    setWinnerSaving(participantId);
+    try {
+      await api.setCastingWinner(participantId, selected);
+      notify?.(selected ? 'Победитель выбран' : 'Отметка победителя снята');
+    } catch (requestError) {
+      setPayload((current) => ({ ...current, winners: previous }));
+      notify?.(requestError.message);
+    } finally {
+      setWinnerSaving(0);
+    }
+  };
+  const downloadResults = async () => {
+    try {
+      await exportCastingResults(participants, judges, scores, winners);
+      notify?.('Excel-файл сформирован');
+    } catch (requestError) {
+      notify?.(requestError.message || 'Не удалось сформировать Excel-файл');
+    }
+  };
 
   return (
     <main className="casting-page">
-      {mode === 'ranking' ? <Ranking participants={participants} scores={scores} onBack={() => setMode('review')} onOpen={(id) => { setActiveIndex(participants.findIndex((item) => item.id === id)); setVideoIndex(0); setMode('review'); }} /> : (
+      {mode === 'ranking' ? <Ranking participants={participants} judges={judges} scores={scores} winners={winners} canManage={canManage} winnerSaving={winnerSaving} onToggleWinner={toggleWinner} onExport={downloadResults} onBack={() => setMode('review')} onOpen={(id) => { setActiveIndex(participants.findIndex((item) => item.id === id)); setVideoIndex(0); setMode('review'); }} /> : (
         <>
           <div className="casting-layout">
             <div className="casting-column">{participant.sections.slice(0, 2).map((section, index) => <InfoSection key={section.title} section={section} index={index} />)}</div>

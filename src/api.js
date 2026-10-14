@@ -250,6 +250,13 @@ export function replaceCastingJudges(names) {
   }).then((payload) => payload.data);
 }
 
+export function setCastingWinner(participantId, selected) {
+  return request(`/owner/casting/${encodeURIComponent(participantId)}/winner`, {
+    method: 'PUT',
+    body: { selected },
+  }).then((payload) => payload.data);
+}
+
 export function loadCastingReviewers() {
   return request('/owner/casting-reviewers').then((payload) => payload.data || []);
 }
