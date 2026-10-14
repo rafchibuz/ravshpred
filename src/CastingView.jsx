@@ -102,7 +102,7 @@ function RatingControl({ value, saving, onChange }) {
         />
         <div className="casting-score-ticks" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <span key={index}>{index + 1}</span>)}</div>
       </div>
-      <p>{saving ? 'Сохраняем…' : value ? <><Check size={14} /> Оценка сохранена. Её можно изменить в любой момент.</> : 'Передвиньте ползунок и отпустите его.'}</p>
+      <p>{saving ? 'Сохраняем…' : value ? <><Check size={14} /> Общая оценка сохранена и видна всем проверяющим.</> : 'Передвиньте ползунок и отпустите его.'}</p>
     </section>
   );
 }
@@ -114,7 +114,7 @@ function Ranking({ participants, scores, onOpen, onBack }) {
   return (
     <section className="casting-ranking">
       <div className="casting-ranking-head">
-        <div><span>ЛИЧНЫЙ РЕЙТИНГ</span><h1>Оценённые участники</h1><p>Нажмите на участника, чтобы вернуться к анкете и скорректировать оценку.</p></div>
+        <div><span>ОБЩИЙ РЕЙТИНГ</span><h1>Оценённые участники</h1><p>Здесь отображаются общие оценки всех проверяющих. Последнее изменение оценки видят все.</p></div>
         <div className="casting-ranking-actions"><strong>{ranked.length} из {participants.length}</strong><button onClick={onBack}><Film size={15} /> К анкетам</button></div>
       </div>
       {!ranked.length ? <div className="casting-empty">Пока нет оценок. Вернитесь к просмотру заявок.</div> : (
@@ -146,11 +146,13 @@ export function CastingView({ notify }) {
   useEffect(() => {
     let active = true;
     document.body.classList.add('casting-open');
-    api.loadCasting()
+    const refresh = (initial = false) => api.loadCasting()
       .then((data) => { if (active) setPayload(data); })
-      .catch((requestError) => { if (active) setError(requestError.message); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; document.body.classList.remove('casting-open'); };
+      .catch((requestError) => { if (active && initial) setError(requestError.message); })
+      .finally(() => { if (active && initial) setLoading(false); });
+    refresh(true);
+    const timer = window.setInterval(() => refresh(false), 5000);
+    return () => { active = false; window.clearInterval(timer); document.body.classList.remove('casting-open'); };
   }, []);
 
   useEffect(() => {

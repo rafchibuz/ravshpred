@@ -63,6 +63,9 @@ var retryRavshTOKTimeoutsSchema string
 //go:embed migrations/000015_casting.sql
 var castingSchema string
 
+//go:embed migrations/000016_shared_casting_scores.sql
+var sharedCastingScoresSchema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -137,6 +140,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, castingSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply casting schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, sharedCastingScoresSchema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply shared casting scores schema: %w", err)
 	}
 	return result, nil
 }

@@ -117,8 +117,8 @@ func (s *Store) ReplaceCastingParticipants(ctx context.Context, participants jso
 	return tx.Commit(ctx)
 }
 
-func (s *Store) CastingScores(ctx context.Context, userID string) (map[int]float64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT participant_id,score FROM casting_scores WHERE user_id::text=$1`, userID)
+func (s *Store) CastingScores(ctx context.Context, _ string) (map[int]float64, error) {
+	rows, err := s.pool.Query(ctx, `SELECT participant_id,score FROM casting_scores`)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *Store) CastingScores(ctx context.Context, userID string) (map[int]float
 func (s *Store) SetCastingScore(ctx context.Context, userID string, participantID int, score float64) error {
 	command, err := s.pool.Exec(ctx, `
 		INSERT INTO casting_scores(user_id,participant_id,score) VALUES($1,$2,$3)
-		ON CONFLICT(user_id,participant_id) DO UPDATE SET score=EXCLUDED.score,updated_at=now()`, userID, participantID, score)
+		ON CONFLICT(participant_id) DO UPDATE SET user_id=EXCLUDED.user_id,score=EXCLUDED.score,updated_at=now()`, userID, participantID, score)
 	if err != nil {
 		return err
 	}
