@@ -11,9 +11,12 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest"
+    "vite": "latest"
+  },
+  "dependencies": {
+    "read-excel-file": "^9.3.12"
   }
 }

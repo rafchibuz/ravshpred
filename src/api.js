@@ -232,6 +232,39 @@ export function loadViewerRating(channel = 'all', period = '30d') {
   return request(`/rating?${query}`).then((payload) => payload.data);
 }
 
+export function loadCasting() {
+  return request('/casting').then((payload) => payload.data);
+}
+
+export function saveCastingScore(participantId, score) {
+  return request(`/casting/${encodeURIComponent(participantId)}/score`, {
+    method: 'PUT',
+    body: { score },
+  }).then((payload) => payload.data);
+}
+
+export function loadCastingReviewers() {
+  return request('/owner/casting-reviewers').then((payload) => payload.data || []);
+}
+
+export function assignCastingReviewer(twitchLogin) {
+  return request('/owner/casting-reviewers', {
+    method: 'POST',
+    body: { twitch_login: twitchLogin },
+  }).then((payload) => payload.data);
+}
+
+export function removeCastingReviewer(userId) {
+  return request(`/owner/casting-reviewers/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+}
+
+export function replaceCastingParticipants(participants) {
+  return request('/owner/casting-participants', {
+    method: 'POST',
+    body: { participants },
+  }).then((payload) => payload.data);
+}
+
 function normalizeRavshTOKItem(item) {
   return {
     id: item.id,
@@ -478,7 +511,7 @@ export function deleteNewsComment(commentId) {
 
 export async function currentUser() {
   const payload = await request('/me');
-  return payload.user;
+  return payload.user ? { ...payload.user, casting_access: Boolean(payload.casting_access) } : null;
 }
 
 export function logout() {

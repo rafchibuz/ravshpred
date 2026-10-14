@@ -13,3 +13,4 @@ tmp/
 !.env.example
 backups/
 imports/
+backend/internal/httpapi/casting_participants.json

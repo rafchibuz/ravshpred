@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  ClipboardList,
   Clock3,
   ExternalLink,
   Eye,
@@ -54,6 +55,7 @@ import {
   voteTotals,
 } from './domain.js';
 import * as api from './api.js';
+import { CastingReviewersPanel, CastingView } from './CastingView.jsx';
 import './styles.css';
 import twitchIcon from '../assets/social/twitch.png';
 import telegramIcon from '../assets/social/telegram.png';
@@ -518,7 +520,7 @@ function Logo({ onClick }) {
   );
 }
 
-function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) {
+function Sidebar({ route, navigate, role, unread, actor, castingAccess, collapsed, onToggle }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const nav = [
     { key: 'home', label: 'Главная', icon: Home },
@@ -527,6 +529,7 @@ function Sidebar({ route, navigate, role, unread, actor, collapsed, onToggle }) 
     { key: 'clips', label: 'Топ клипы', icon: Clapperboard },
     { key: 'vods', label: 'Записи стримов', icon: VideoIcon },
     { key: 'rating', label: 'РЕЙТИНГ', icon: Trophy },
+    ...(castingAccess ? [{ key: 'casting', label: 'Кастинг', icon: ClipboardList }] : []),
     { key: 'news', label: 'Новости', icon: Newspaper },
     { key: 'unban', label: 'Разбан', icon: ShieldAlert },
     ...(can(role, 'submit') ? [{ key: 'submit', label: 'Предложить', icon: Plus }] : []),
@@ -2829,6 +2832,7 @@ function OwnerView({ state, setState, notify, onAddCategory, onDeleteCategory, o
         </section>
       </div>
       {linksEditorOpen && <SiteLinksModal links={settings.siteLinks || []} notify={notify} onClose={() => setLinksEditorOpen(false)} onSave={async (siteLinks) => { await persistSettings({ ...settings, siteLinks }); notify('Плашки сохранены'); }} />}
+      <CastingReviewersPanel notify={notify} />
       <OwnerUsersPanel notify={notify} />
       <OwnerAuditPanel notify={notify} />
     </main>
@@ -3625,6 +3629,7 @@ function App() {
   else if (route === 'ravshtok') page = <RavshTOKView actor={sessionUser} role={role} onLogin={openAuth} notify={notify} />;
   else if (route === 'vods') page = <TwitchVodsView navigate={navigate} />;
   else if (route === 'rating') page = <ViewerRatingView actor={sessionUser} role={role} onLogin={openAuth} />;
+  else if (route === 'casting') page = sessionUser?.casting_access ? <CastingView notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route.startsWith('vod/')) page = <TwitchVodView videoId={route.slice(4)} navigate={navigate} />;
   else if (route === 'community' || route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;
@@ -3640,7 +3645,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar route={route} navigate={navigate} role={role} unread={unread} actor={actor} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+      <Sidebar route={route} navigate={navigate} role={role} unread={unread} actor={actor} castingAccess={Boolean(sessionUser?.casting_access)} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       <div className={`app-body ${route === 'ravshtok' ? 'ravshtok-body' : ''}`}>
         <Topbar role={role} search={search} setSearch={setSearch} navigate={navigate} openAuth={openAuth} onSignOut={signOut} unread={unread} actor={actor} />
         {page}

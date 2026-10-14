@@ -206,6 +206,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/twitch/videos/{id}", s.twitchVideo)
 	mux.HandleFunc("GET /api/twitch/cache-status", s.twitchCacheStatus)
 	mux.HandleFunc("GET /api/rating", s.viewerRating)
+	mux.HandleFunc("GET /api/casting", s.casting)
+	mux.HandleFunc("PUT /api/casting/{id}/score", s.setCastingScore)
 	mux.HandleFunc("GET /api/news", s.news)
 	mux.HandleFunc("POST /api/news/{id}/comments", s.createNewsComment)
 	mux.HandleFunc("DELETE /api/news/comments/{id}", s.deleteNewsComment)
@@ -232,6 +234,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/moderation/submissions/{id}/movie", s.videoMovie)
 	mux.HandleFunc("DELETE /api/moderation/submissions/{id}", s.deleteVideo)
 	mux.HandleFunc("POST /api/owner/categories", s.createCategory)
+	mux.HandleFunc("GET /api/owner/casting-reviewers", s.listCastingReviewers)
+	mux.HandleFunc("POST /api/owner/casting-reviewers", s.assignCastingReviewer)
+	mux.HandleFunc("DELETE /api/owner/casting-reviewers/{id}", s.removeCastingReviewer)
+	mux.HandleFunc("POST /api/owner/casting-participants", s.replaceCastingParticipants)
 	mux.HandleFunc("DELETE /api/owner/categories/{id}", s.deleteCategory)
 	mux.HandleFunc("POST /api/owner/moderators", s.assignModerator)
 	mux.HandleFunc("GET /api/owner/moderators", s.listModerators)
@@ -927,7 +933,12 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": actor.User})
+	castingAccess, castingErr := s.castingAccess(r.Context(), actor)
+	if castingErr != nil {
+		s.internalError(w, castingErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": actor.User, "casting_access": castingAccess})
 }
 
 func (s *Server) twitchStart(w http.ResponseWriter, r *http.Request) {
