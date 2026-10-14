@@ -25,6 +25,14 @@ const castingFieldLabels = {
   'Обязательства': 'Обязательства, которые могут помешать участию',
   'Что готов изменить': 'Что готов изменить ради участия',
 };
+const hiddenCastingFields = new Set([
+  'Фамилия',
+  'Отчество',
+  'Официальные соревнования',
+  'Опыт реальных поединков',
+  'Официальных боёв',
+  'Тренер / контракт',
+]);
 const castingPositionKey = 'casting-active-participant';
 function youtubeEmbed(url) {
   const id = parseYouTubeId(url);
@@ -57,7 +65,7 @@ function InfoSection({ section, index }) {
     <section className="casting-card casting-info-card">
       <header><Icon size={19} /><h2>{section.title}</h2></header>
       <div className="casting-field-grid">
-        {section.fields.filter((item) => !['Фамилия', 'Отчество'].includes(item.label)).map((item) => (
+        {section.fields.filter((item) => !hiddenCastingFields.has(item.label)).map((item) => (
           <div className="casting-field" key={item.label}>
             <span>{castingFieldLabels[item.label] || item.label}</span>
             <strong className={item.label === 'Ссылки' ? 'casting-links' : ''}>
