@@ -25,6 +25,7 @@ const castingFieldLabels = {
   'Обязательства': 'Обязательства, которые могут помешать участию',
   'Что готов изменить': 'Что готов изменить ради участия',
 };
+const castingPositionKey = 'casting-active-participant';
 function youtubeEmbed(url) {
   const id = parseYouTubeId(url);
   return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1` : '';
@@ -172,7 +173,10 @@ export function CastingView({ notify, canManage = false }) {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(() => {
+    const saved = Number.parseInt(window.localStorage.getItem(castingPositionKey), 10);
+    return Number.isFinite(saved) && saved > 0 ? saved - 1 : 0;
+  });
   const [videoIndex, setVideoIndex] = useState(0);
   const [mode, setMode] = useState('review');
   const [savingKey, setSavingKey] = useState('');
@@ -194,6 +198,17 @@ export function CastingView({ notify, canManage = false }) {
     setParticipantNumber(String(activeIndex + 1));
   }, [activeIndex]);
 
+  const participantCount = payload?.participants?.length || 0;
+  useEffect(() => {
+    if (!participantCount) return;
+    const bounded = Math.max(0, Math.min(activeIndex, participantCount - 1));
+    if (bounded !== activeIndex) {
+      setActiveIndex(bounded);
+      return;
+    }
+    window.localStorage.setItem(castingPositionKey, String(activeIndex + 1));
+  }, [activeIndex, participantCount]);
+
   if (loading) return <main className="casting-page casting-state"><span className="clips-loader" /><h2>Загружаем анкеты</h2></main>;
   if (error || !payload) return <main className="casting-page casting-state"><ShieldCheck size={34} /><h2>Кастинг недоступен</h2><p>{error || 'Не удалось получить данные.'}</p></main>;
 
@@ -201,7 +216,8 @@ export function CastingView({ notify, canManage = false }) {
   const judges = payload.judges?.length ? payload.judges : [{ id: 1, name: 'Судья 1' }];
   const scores = payload.scores || {};
   if (!participants.length) return <main className="casting-page casting-state"><FileUp size={34} /><h2>Участники ещё не загружены</h2><p>Владелец может загрузить Excel в панели управления.</p></main>;
-  const participant = participants[activeIndex];
+  const displayedIndex = Math.max(0, Math.min(activeIndex, participants.length - 1));
+  const participant = participants[displayedIndex];
   const changeParticipant = (next) => {
     const bounded = Math.max(0, Math.min(next, participants.length - 1));
     setActiveIndex(bounded);
@@ -253,14 +269,14 @@ export function CastingView({ notify, canManage = false }) {
             <div className="casting-column casting-media-column">
               <section className="casting-person-head">
                 <div className="casting-person-avatar">{participant.full_name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('')}</div>
-                <div className="casting-person-copy"><span>УЧАСТНИК {activeIndex + 1} ИЗ {participants.length}</span><h2>{participant.full_name}{participant.city ? `, ${participant.city}` : ''}</h2></div>
+                <div className="casting-person-copy"><span>УЧАСТНИК {displayedIndex + 1} ИЗ {participants.length}</span><h2>{participant.full_name}{participant.city ? `, ${participant.city}` : ''}</h2></div>
                 <nav className="casting-top-pagination" aria-label="Навигация по анкетам">
-                  <button disabled={activeIndex === 0} onClick={() => changeParticipant(activeIndex - 1)}><ArrowLeft size={17} /><span>Предыдущий</span></button>
+                  <button disabled={displayedIndex === 0} onClick={() => changeParticipant(displayedIndex - 1)}><ArrowLeft size={17} /><span>Предыдущий</span></button>
                   <form className="casting-participant-jump" onSubmit={(event) => { event.preventDefault(); jumpToParticipant(); }}>
                     <input type="number" min="1" max={participants.length} value={participantNumber} aria-label="Номер участника" onChange={(event) => setParticipantNumber(event.target.value)} onBlur={jumpToParticipant} onWheel={(event) => event.currentTarget.blur()} />
                     <span>/ {participants.length}</span>
                   </form>
-                  <button className="next" disabled={activeIndex === participants.length - 1} onClick={() => changeParticipant(activeIndex + 1)}><span>Следующий</span><ArrowRight size={17} /></button>
+                  <button className="next" disabled={displayedIndex === participants.length - 1} onClick={() => changeParticipant(displayedIndex + 1)}><span>Следующий</span><ArrowRight size={17} /></button>
                 </nav>
                 <button className="casting-ranking-button" onClick={() => setMode('ranking')}><Trophy size={16} /> Рейтинг</button>
               </section>
