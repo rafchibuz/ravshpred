@@ -17,6 +17,7 @@ import {
 import { parseYouTubeId } from './domain.js';
 import * as api from './api.js';
 import { importCastingWorkbook } from './castingImport.js';
+import { averageCastingScore, resizeCastingJudges } from './castingScores.js';
 import './casting.css';
 
 const sectionIcons = [UserRound, Medal, Star, ShieldCheck, Trophy];
@@ -68,7 +69,7 @@ function InfoSection({ section, index }) {
   );
 }
 
-function RatingControl({ value, saving, onChange }) {
+function JudgeSlider({ judge, value, saving, canManage, onNameChange, onChange }) {
   const [draft, setDraft] = useState(value || 1);
   const [dirty, setDirty] = useState(false);
 
@@ -84,33 +85,67 @@ function RatingControl({ value, saving, onChange }) {
   };
 
   return (
-    <section className="casting-card casting-score-card">
-      <header><Star size={20} /><h2>Оценка участника</h2></header>
-      <div className="casting-score-value"><b>{dirty ? draft : value || '—'}</b><span>/ 10</span></div>
+    <div className="casting-judge-slider">
+      <div>{canManage ? <input value={judge.name} maxLength="80" aria-label={`Имя судьи ${judge.id}`} onChange={(event) => onNameChange(event.target.value)} /> : <strong>{judge.name}</strong>}<b>{dirty ? draft : value || '—'}</b></div>
       <div className="casting-score-slider">
-        <input
-          type="range"
-          min="1"
-          max="10"
-          step="0.5"
-          value={draft}
-          disabled={saving}
-          aria-label="Оценка от 1 до 10 с шагом 0,5"
-          onChange={(event) => { setDraft(Number(event.target.value)); setDirty(true); }}
-          onPointerUp={commit}
-          onKeyUp={commit}
-        />
+        <input type="range" min="1" max="10" step="0.5" value={draft} disabled={saving} aria-label={`Оценка судьи ${judge.name}`}
+          onChange={(event) => { setDraft(Number(event.target.value)); setDirty(true); }} onPointerUp={commit} onKeyUp={commit} />
         <div className="casting-score-ticks" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <span key={index}>{index + 1}</span>)}</div>
       </div>
-      <p>{saving ? 'Сохраняем…' : value ? <><Check size={14} /> Общая оценка сохранена и видна всем проверяющим.</> : 'Передвиньте ползунок и отпустите его.'}</p>
+    </div>
+  );
+}
+
+function RatingControl({ judges, scores, savingKey, canManage, onChange, onSaveJudges }) {
+  const [draftJudges, setDraftJudges] = useState(judges);
+  const [judgesDirty, setJudgesDirty] = useState(false);
+  const [savingJudges, setSavingJudges] = useState(false);
+
+  useEffect(() => {
+    if (!judgesDirty) setDraftJudges(judges);
+  }, [judges, judgesDirty]);
+
+  const average = averageCastingScore(scores);
+  const scoredCount = Object.values(scores || {}).filter((score) => Number(score) > 0).length;
+
+  const saveJudges = async () => {
+    if (!judgesDirty || savingJudges) return;
+    if (draftJudges.length < judges.length && !window.confirm('Оценки удалённых судей будут удалены. Продолжить?')) return;
+    setSavingJudges(true);
+    try {
+      await onSaveJudges(draftJudges.map((judge) => judge.name.trim() || `Судья ${judge.id}`));
+      setJudgesDirty(false);
+    } catch {
+      // The parent keeps the current form and shows the API error.
+    } finally {
+      setSavingJudges(false);
+    }
+  };
+
+  return (
+    <section className="casting-card casting-score-card">
+      <header><Star size={20} /><h2>Оценка участника</h2></header>
+      <div className="casting-score-value"><b>{average || '—'}</b><span>/ 10</span></div>
+      <div className="casting-score-summary">Средняя оценка · выставлено {scoredCount} из {judges.length}</div>
+      {canManage && (
+        <div className="casting-judges-config">
+          <label>Количество судей<input type="number" min="1" max="20" value={draftJudges.length} onChange={(event) => { setDraftJudges((current) => resizeCastingJudges(current, event.target.value)); setJudgesDirty(true); }} /></label>
+          <button disabled={!judgesDirty || savingJudges} onClick={saveJudges}>{savingJudges ? 'Сохраняем…' : 'Сохранить судей'}</button>
+        </div>
+      )}
+      <div className="casting-judge-list">
+        {(canManage ? draftJudges : judges).map((judge, index) => <JudgeSlider key={judge.id} judge={judge} value={Number(scores?.[judge.id]) || 0} saving={Boolean(savingKey) || judge.id > judges.length} canManage={canManage} onNameChange={(name) => { setDraftJudges((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name } : item)); setJudgesDirty(true); }} onChange={(score) => onChange(judge.id, score)} />)}
+      </div>
+      <p>{savingKey ? 'Сохраняем…' : scoredCount ? <><Check size={14} /> Все оценки и среднее видны проверяющим.</> : 'Передвиньте ползунок и отпустите его.'}</p>
     </section>
   );
 }
 
 function Ranking({ participants, scores, onOpen, onBack }) {
   const ranked = useMemo(() => participants
-    .filter((participant) => Number(scores[participant.id]) > 0)
-    .sort((a, b) => Number(scores[b.id]) - Number(scores[a.id]) || a.id - b.id), [participants, scores]);
+    .map((participant) => ({ ...participant, average: averageCastingScore(scores[participant.id]) }))
+    .filter((participant) => participant.average > 0)
+    .sort((a, b) => b.average - a.average || a.id - b.id), [participants, scores]);
   return (
     <section className="casting-ranking">
       <div className="casting-ranking-head">
@@ -123,7 +158,7 @@ function Ranking({ participants, scores, onOpen, onBack }) {
             <button key={participant.id} onClick={() => onOpen(participant.id)}>
               <b className={index < 3 ? `place place-${index + 1}` : 'place'}>#{index + 1}</b>
               <span><strong>{participant.full_name}</strong><small>@{participant.twitch} · {participant.city}</small></span>
-              <em>{scores[participant.id]}<small>/10</small></em>
+              <em>{participant.average}<small>/10</small></em>
               <ChevronRight size={18} />
             </button>
           ))}
@@ -133,14 +168,14 @@ function Ranking({ participants, scores, onOpen, onBack }) {
   );
 }
 
-export function CastingView({ notify }) {
+export function CastingView({ notify, canManage = false }) {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [videoIndex, setVideoIndex] = useState(0);
   const [mode, setMode] = useState('review');
-  const [saving, setSaving] = useState(false);
+  const [savingKey, setSavingKey] = useState('');
   const [participantNumber, setParticipantNumber] = useState('1');
 
   useEffect(() => {
@@ -163,6 +198,7 @@ export function CastingView({ notify }) {
   if (error || !payload) return <main className="casting-page casting-state"><ShieldCheck size={34} /><h2>Кастинг недоступен</h2><p>{error || 'Не удалось получить данные.'}</p></main>;
 
   const participants = payload.participants || [];
+  const judges = payload.judges?.length ? payload.judges : [{ id: 1, name: 'Судья 1' }];
   const scores = payload.scores || {};
   if (!participants.length) return <main className="casting-page casting-state"><FileUp size={34} /><h2>Участники ещё не загружены</h2><p>Владелец может загрузить Excel в панели управления.</p></main>;
   const participant = participants[activeIndex];
@@ -181,19 +217,30 @@ export function CastingView({ notify }) {
     }
     changeParticipant(requested - 1);
   };
-  const saveScore = async (score) => {
-    if (!participant || saving) return;
-    const previous = scores[participant.id];
-    setPayload((current) => ({ ...current, scores: { ...current.scores, [participant.id]: score } }));
-    setSaving(true);
+  const saveScore = async (judgeId, score) => {
+    if (!participant || savingKey) return;
+    const previous = scores[participant.id]?.[judgeId];
+    setPayload((current) => ({ ...current, scores: { ...current.scores, [participant.id]: { ...current.scores?.[participant.id], [judgeId]: score } } }));
+    setSavingKey(String(judgeId));
     try {
-      await api.saveCastingScore(participant.id, score);
+      await api.saveCastingScore(participant.id, judgeId, score);
       notify?.(`Оценка ${score}/10 сохранена`);
     } catch (requestError) {
-      setPayload((current) => ({ ...current, scores: { ...current.scores, [participant.id]: previous } }));
+      setPayload((current) => ({ ...current, scores: { ...current.scores, [participant.id]: { ...current.scores?.[participant.id], [judgeId]: previous } } }));
       notify?.(requestError.message);
     } finally {
-      setSaving(false);
+      setSavingKey('');
+    }
+  };
+  const saveJudges = async (names) => {
+    try {
+      const updatedJudges = await api.replaceCastingJudges(names);
+      const updated = await api.loadCasting();
+      setPayload({ ...updated, judges: updatedJudges });
+      notify?.('Состав судей сохранён');
+    } catch (requestError) {
+      notify?.(requestError.message);
+      throw requestError;
     }
   };
 
@@ -237,7 +284,7 @@ export function CastingView({ notify }) {
               <InfoSection section={participant.sections[2]} index={2} />
             </div>
             <aside className="casting-column casting-side-column">
-              <RatingControl value={Number(scores[participant.id]) || 0} saving={saving} onChange={saveScore} />
+              <RatingControl judges={judges} scores={scores[participant.id] || {}} savingKey={savingKey} canManage={canManage} onChange={saveScore} onSaveJudges={saveJudges} />
               <InfoSection section={participant.sections[3]} index={3} />
               <InfoSection section={participant.sections[4]} index={4} />
             </aside>

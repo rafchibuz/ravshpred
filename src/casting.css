@@ -80,9 +80,22 @@ body.casting-open .app-body { height: 100dvh; overflow-y: auto; overscroll-behav
 .casting-external-video a { padding: 10px 14px; border: 1px solid #7f3fc6; border-radius: 8px; color: #e1bdff; background: #2b1938; font-size: 11px; font-weight: 800; text-decoration: none; }
 
 .casting-score-card { padding-bottom: 14px; }
-.casting-score-value { display: flex; align-items: flex-end; justify-content: center; gap: 6px; padding: 18px 12px 12px; }
+.casting-score-value { display: flex; align-items: flex-end; justify-content: center; gap: 6px; padding: 16px 12px 5px; }
 .casting-score-value b { color: #fff; font-size: 48px; line-height: .9; }
 .casting-score-value span { color: #b682ea; font-size: 17px; }
+.casting-score-summary { margin-bottom: 13px; color: #918b97; font-size: 10px; text-align: center; }
+.casting-judges-config { display: flex; align-items: flex-end; gap: 7px; margin: 0 12px 13px; padding: 10px; border: 1px solid #37313f; border-radius: 8px; background: #111015; }
+.casting-judges-config label { display: grid; flex: 1; gap: 4px; color: #a9a2af; font-size: 9px; }
+.casting-judges-config input { width: 62px; min-width: 0; padding: 7px 8px; border: 1px solid #41384a; border-radius: 6px; color: #f7f4f9; background: #1a171e; }
+.casting-judges-config button { padding: 7px 9px; border: 1px solid #8149b8; border-radius: 6px; color: #f4eaff; background: #50227c; cursor: pointer; }
+.casting-judges-config button:disabled { opacity: .45; cursor: default; }
+.casting-judge-list { display: grid; gap: 12px; padding: 0 12px; }
+.casting-judge-slider { padding-top: 10px; border-top: 1px solid #302c34; }
+.casting-judge-slider:first-child { padding-top: 0; border-top: 0; }
+.casting-judge-slider > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 0 5px; }
+.casting-judge-slider > div:first-child strong { overflow: hidden; color: #d9d3dd; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.casting-judge-slider > div:first-child input { min-width: 0; width: 100%; padding: 5px 7px; border: 1px solid #41384a; border-radius: 5px; color: #e9e3ed; background: #17141b; }
+.casting-judge-slider > div:first-child b { color: #c27fff; font-size: 18px; }
 .casting-score-slider { padding: 4px 17px 0; }
 .casting-score-slider input { display: block; width: 90%; height: 6px; margin: 10px 5% 8px; padding: 0; appearance: none; border: 0; border-radius: 999px; outline: none; cursor: pointer; background: linear-gradient(90deg, #6e2fbe, #b96eff); }
 .casting-score-slider input::-webkit-slider-thumb { width: 20px; height: 20px; appearance: none; border: 3px solid #fff; border-radius: 50%; background: #a756ff; box-shadow: 0 2px 12px rgba(152, 72, 255, .6); }

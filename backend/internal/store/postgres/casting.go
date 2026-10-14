@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -117,28 +118,76 @@ func (s *Store) ReplaceCastingParticipants(ctx context.Context, participants jso
 	return tx.Commit(ctx)
 }
 
-func (s *Store) CastingScores(ctx context.Context, _ string) (map[int]float64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT participant_id,score FROM casting_scores`)
+func (s *Store) CastingJudgeNames(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT name FROM casting_judges ORDER BY position`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make(map[int]float64)
+	result := make([]string, 0)
 	for rows.Next() {
-		var participantID int
-		var score float64
-		if err := rows.Scan(&participantID, &score); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return nil, err
 		}
-		result[participantID] = score
+		result = append(result, name)
 	}
 	return result, rows.Err()
 }
 
-func (s *Store) SetCastingScore(ctx context.Context, userID string, participantID int, score float64) error {
+func (s *Store) ReplaceCastingJudgeNames(ctx context.Context, names []string, actorID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `DELETE FROM casting_scores WHERE judge_id > $1`, len(names)); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM casting_judges WHERE position > $1`, len(names)); err != nil {
+		return err
+	}
+	for index, name := range names {
+		name = strings.TrimSpace(name)
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO casting_judges(position,name) VALUES($1,$2)
+			ON CONFLICT(position) DO UPDATE SET name=EXCLUDED.name,updated_at=now()`, index+1, name); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(ctx, `
+		INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata)
+		VALUES($1,'replace_casting_judges','casting','judges',jsonb_build_object('count',$2::int))`, actorID, len(names)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) CastingScores(ctx context.Context, _ string) (map[int]map[int]float64, error) {
+	rows, err := s.pool.Query(ctx, `SELECT participant_id,judge_id,score FROM casting_scores`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[int]map[int]float64)
+	for rows.Next() {
+		var participantID, judgeID int
+		var score float64
+		if err := rows.Scan(&participantID, &judgeID, &score); err != nil {
+			return nil, err
+		}
+		if result[participantID] == nil {
+			result[participantID] = make(map[int]float64)
+		}
+		result[participantID][judgeID] = score
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SetCastingScore(ctx context.Context, userID string, participantID, judgeID int, score float64) error {
 	command, err := s.pool.Exec(ctx, `
-		INSERT INTO casting_scores(user_id,participant_id,score) VALUES($1,$2,$3)
-		ON CONFLICT(participant_id) DO UPDATE SET user_id=EXCLUDED.user_id,score=EXCLUDED.score,updated_at=now()`, userID, participantID, score)
+		INSERT INTO casting_scores(user_id,participant_id,judge_id,score) VALUES($1,$2,$3,$4)
+		ON CONFLICT(participant_id,judge_id) DO UPDATE SET user_id=EXCLUDED.user_id,score=EXCLUDED.score,updated_at=now()`, userID, participantID, judgeID, score)
 	if err != nil {
 		return err
 	}

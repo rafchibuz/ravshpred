@@ -3629,7 +3629,7 @@ function App() {
   else if (route === 'ravshtok') page = <RavshTOKView actor={sessionUser} role={role} onLogin={openAuth} notify={notify} />;
   else if (route === 'vods') page = <TwitchVodsView navigate={navigate} />;
   else if (route === 'rating') page = <ViewerRatingView actor={sessionUser} role={role} onLogin={openAuth} />;
-  else if (route === 'casting') page = sessionUser?.casting_access ? <CastingView notify={notify} /> : <AccessDenied role={role} onAccess={openAuth} />;
+  else if (route === 'casting') page = sessionUser?.casting_access ? <CastingView notify={notify} canManage={role === 'owner'} /> : <AccessDenied role={role} onAccess={openAuth} />;
   else if (route.startsWith('vod/')) page = <TwitchVodView videoId={route.slice(4)} navigate={navigate} />;
   else if (route === 'community' || route === 'feed') page = <Feed videos={state.videos} categories={state.categories} role={role} search={search} onVote={vote} onOpen={openVideo} navigate={navigate} onLogin={openAuth} />;
   else if (route === 'news') page = <NewsView posts={state.news} role={role} actor={actor} onLogin={openAuth} onCreatePost={createNewsPost} onDeletePost={deleteNewsPost} onCreateComment={createNewsComment} onDeleteComment={deleteNewsComment} notify={notify} />;

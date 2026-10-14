@@ -236,10 +236,17 @@ export function loadCasting() {
   return request('/casting').then((payload) => payload.data);
 }
 
-export function saveCastingScore(participantId, score) {
-  return request(`/casting/${encodeURIComponent(participantId)}/score`, {
+export function saveCastingScore(participantId, judgeId, score) {
+  return request(`/casting/${encodeURIComponent(participantId)}/score/${encodeURIComponent(judgeId)}`, {
     method: 'PUT',
     body: { score },
+  }).then((payload) => payload.data);
+}
+
+export function replaceCastingJudges(names) {
+  return request('/owner/casting-judges', {
+    method: 'PUT',
+    body: { names },
   }).then((payload) => payload.data);
 }
 

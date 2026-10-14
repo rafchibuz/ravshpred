@@ -19,8 +19,15 @@ type castingStore interface {
 	RemoveCastingReviewer(context.Context, string, string) error
 	CastingParticipants(context.Context) (json.RawMessage, error)
 	ReplaceCastingParticipants(context.Context, json.RawMessage, string) error
-	CastingScores(context.Context, string) (map[int]float64, error)
-	SetCastingScore(context.Context, string, int, float64) error
+	CastingJudgeNames(context.Context) ([]string, error)
+	ReplaceCastingJudgeNames(context.Context, []string, string) error
+	CastingScores(context.Context, string) (map[int]map[int]float64, error)
+	SetCastingScore(context.Context, string, int, int, float64) error
+}
+
+type castingJudge struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 type castingField struct {
@@ -146,7 +153,16 @@ func (s *Server) casting(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participants": visibleCastingParticipants(participants), "scores": scores}})
+	judgeNames, err := database.CastingJudgeNames(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	judges := make([]castingJudge, len(judgeNames))
+	for index, name := range judgeNames {
+		judges[index] = castingJudge{ID: index + 1, Name: name}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participants": visibleCastingParticipants(participants), "judges": judges, "scores": scores}})
 }
 
 func (s *Server) setCastingScore(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +196,20 @@ func (s *Server) setCastingScore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_participant", "Участник не найден")
 		return
 	}
+	judgeID, err := strconv.Atoi(r.PathValue("judge"))
+	if err != nil || judgeID < 1 {
+		writeError(w, http.StatusBadRequest, "invalid_judge", "Судья не найден")
+		return
+	}
+	judgeNames, err := database.CastingJudgeNames(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if judgeID > len(judgeNames) {
+		writeError(w, http.StatusBadRequest, "invalid_judge", "Судья не найден")
+		return
+	}
 	var input struct {
 		Score float64 `json:"score"`
 	}
@@ -190,11 +220,49 @@ func (s *Server) setCastingScore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_score", "Оценка должна быть от 1 до 10 с шагом 0,5")
 		return
 	}
-	if err := database.SetCastingScore(r.Context(), actor.User.ID, participantID, input.Score); err != nil {
+	if err := database.SetCastingScore(r.Context(), actor.User.ID, participantID, judgeID, input.Score); err != nil {
 		s.storeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participant_id": participantID, "score": input.Score}})
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participant_id": participantID, "judge_id": judgeID, "score": input.Score}})
+}
+
+func (s *Server) replaceCastingJudges(w http.ResponseWriter, r *http.Request) {
+	actor := s.require(w, r, "manage")
+	if actor == nil {
+		return
+	}
+	var input struct {
+		Names []string `json:"names"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if len(input.Names) < 1 || len(input.Names) > 20 {
+		writeError(w, http.StatusBadRequest, "invalid_judges", "Количество судей должно быть от 1 до 20")
+		return
+	}
+	for index := range input.Names {
+		input.Names[index] = strings.TrimSpace(input.Names[index])
+		if input.Names[index] == "" || len([]rune(input.Names[index])) > 80 {
+			writeError(w, http.StatusBadRequest, "invalid_judges", "Имя каждого судьи должно содержать от 1 до 80 символов")
+			return
+		}
+	}
+	database, ok := s.store.(castingStore)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "casting_unavailable", "Кастинг временно недоступен")
+		return
+	}
+	if err := database.ReplaceCastingJudgeNames(r.Context(), input.Names, actor.User.ID); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	judges := make([]castingJudge, len(input.Names))
+	for index, name := range input.Names {
+		judges[index] = castingJudge{ID: index + 1, Name: name}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": judges})
 }
 
 func (s *Server) replaceCastingParticipants(w http.ResponseWriter, r *http.Request) {
