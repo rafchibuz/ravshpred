@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -235,7 +236,7 @@ func (s *Store) SetCastingWinner(ctx context.Context, participantID int, selecte
 	}
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO audit_log(actor_id,action,target_type,target_id,metadata)
-		VALUES($1,'set_casting_winner','casting_participant',$2::text,jsonb_build_object('selected',$3::boolean))`, actorID, participantID, selected); err != nil {
+		VALUES($1,'set_casting_winner','casting_participant',$2,jsonb_build_object('selected',$3::boolean))`, actorID, strconv.Itoa(participantID), selected); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
