@@ -77,6 +77,32 @@ func (s *Store) ReadRatingSnapshot(ctx context.Context, channel, period, userID 
 	return result, nil
 }
 
+// ReadRatingSnapshotByLogin returns an exact place from the full immutable
+// snapshot, including viewers outside the public top-100 response.
+func (s *Store) ReadRatingSnapshotByLogin(ctx context.Context, channel, period, login string) (*domain.ViewerRatingEntry, error) {
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `SELECT payload FROM twitch_rating_snapshot_entries
+		WHERE snapshot_key=$1 AND lower(payload->>'login')=$2 LIMIT 1`, channel+":"+period, login).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var result domain.ViewerRatingEntry
+	if err = json.Unmarshal(payload, &result); err != nil {
+		return nil, err
+	}
+	if result.AvatarURL == "" {
+		avatars, avatarErr := s.ratingAvatarURLs(ctx, []string{result.TwitchID})
+		if avatarErr != nil {
+			return nil, avatarErr
+		}
+		result.AvatarURL = avatars[result.TwitchID]
+	}
+	return &result, nil
+}
+
 // RatingAvatarTargets returns only users that are currently missing a cached
 // profile image (or whose image is older than a week). The list is derived
 // from published snapshots, so unregistered viewers are included as well.

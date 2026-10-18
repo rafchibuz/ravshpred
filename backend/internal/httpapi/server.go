@@ -78,6 +78,10 @@ type ratingSnapshots interface {
 	RunRatingSnapshots(context.Context, *slog.Logger)
 }
 
+type ratingSnapshotLookup interface {
+	ReadRatingSnapshotByLogin(context.Context, string, string, string) (*domain.ViewerRatingEntry, error)
+}
+
 // newsBroadcaster is an optional extension implemented by the PostgreSQL store.
 // Keeping it separate from store.Store preserves compatibility with lightweight
 // stores used by tests and local tooling.
@@ -206,6 +210,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/twitch/videos/{id}", s.twitchVideo)
 	mux.HandleFunc("GET /api/twitch/cache-status", s.twitchCacheStatus)
 	mux.HandleFunc("GET /api/rating", s.viewerRating)
+	mux.HandleFunc("GET /api/rating/lookup", s.viewerRatingLookup)
 	mux.HandleFunc("GET /api/casting", s.casting)
 	mux.HandleFunc("PUT /api/casting/{id}/score/{judge}", s.setCastingScore)
 	mux.HandleFunc("GET /api/news", s.news)
@@ -324,6 +329,54 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 	result.Channel = channel
 	result.Period = period
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (s *Server) viewerRatingLookup(w http.ResponseWriter, r *http.Request) {
+	channel := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
+	if channel == "" {
+		channel = "all"
+	}
+	if channel != "all" && channel != "ravshann" && channel != "ravshanbtw" {
+		writeError(w, http.StatusBadRequest, "invalid_channel", "Неизвестный Twitch-канал")
+		return
+	}
+	period := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("period")))
+	if period == "" {
+		period = "1y"
+	}
+	switch period {
+	case "1d", "7d", "30d", "90d", "1y", "last_stream", "all":
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_period", "Неизвестный период рейтинга")
+		return
+	}
+	login := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(r.URL.Query().Get("login")), "@"))
+	if len(login) < 1 || len(login) > 25 {
+		writeError(w, http.StatusBadRequest, "invalid_login", "Некорректный Twitch login")
+		return
+	}
+	for _, char := range login {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '_' {
+			writeError(w, http.StatusBadRequest, "invalid_login", "Некорректный Twitch login")
+			return
+		}
+	}
+	lookup, ok := s.store.(ratingSnapshotLookup)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "lookup_unavailable", "Точный поиск рейтинга недоступен")
+		return
+	}
+	entry, err := lookup.ReadRatingSnapshotByLogin(r.Context(), channel, period, login)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if entry == nil {
+		writeError(w, http.StatusNotFound, "rating_not_found", "Пользователь пока не найден в рейтинге")
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=10")
+	writeJSON(w, http.StatusOK, map[string]any{"data": entry})
 }
 
 func (s *Server) twitchVideos(w http.ResponseWriter, r *http.Request) {
