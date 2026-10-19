@@ -217,6 +217,7 @@ var ratingSnapshotChannels = []string{"all", "ravshann", "ravshanbtw"}
 const (
 	ratingSnapshotPollInterval = time.Minute
 	ratingSnapshotQuietPeriod  = 5 * time.Minute
+	ratingSnapshotLiveInterval = 5 * time.Minute
 	ratingSnapshotJobPause     = 15 * time.Second
 )
 
@@ -225,11 +226,9 @@ type ratingSnapshotJob struct {
 	period  string
 }
 
-// ratingSourceUpdatedAt follows stream lifecycle changes rather than chat
-// messages. Chat messages are collected only while a stream is active, so the
-// final ended_at update is the single watermark that should publish them. Using
-// last_event_at here would make every message invalidate all rating periods and
-// keep PostgreSQL continuously rescoring the full history during a busy stream.
+// ratingSourceUpdatedAt is a cheap watermark only. It lets readers report that
+// a live snapshot is slightly behind and lets the worker notice new messages
+// without ever reading the full message history during its polling pass.
 func (s *Store) ratingSourceUpdatedAt(ctx context.Context, channel string) (time.Time, error) {
 	var result time.Time
 	err := s.pool.QueryRow(ctx, `
@@ -237,6 +236,8 @@ func (s *Store) ratingSourceUpdatedAt(ctx context.Context, channel string) (time
 			COALESCE((SELECT max(started_at) FROM twitch_rating_streams
 				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz),
 			COALESCE((SELECT max(ended_at) FROM twitch_rating_streams
+				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz),
+			COALESCE((SELECT max(last_event_at) FROM twitch_rating_state
 				WHERE $1='all' OR channel_login=$1), 'epoch'::timestamptz)
 		)`, channel).Scan(&result)
 	return result, err
@@ -268,13 +269,18 @@ func (s *Store) ratingSnapshotState(ctx context.Context) (ratingSnapshotRefreshS
 }
 
 func ratingSnapshotRefreshDeferred(state ratingSnapshotRefreshState, now time.Time) (bool, string) {
-	if state.activeStream {
-		return true, "stream_live"
-	}
-	if state.lastLifecycleEvent.After(now.Add(-ratingSnapshotQuietPeriod)) {
+	if !state.activeStream && state.lastLifecycleEvent.After(now.Add(-ratingSnapshotQuietPeriod)) {
 		return true, "post_stream_cooldown"
 	}
 	return false, ""
+}
+
+// RatingAvatarRefreshDeferred keeps Twitch profile hydration out of the live
+// path. Already cached avatars remain available; newly ranked users are filled
+// on the first minute after the stream closes.
+func (s *Store) RatingAvatarRefreshDeferred(ctx context.Context) (bool, error) {
+	state, err := s.ratingSnapshotState(ctx)
+	return state.activeStream, err
 }
 
 func waitForRatingSnapshotWorker(ctx context.Context, duration time.Duration) bool {
@@ -288,10 +294,34 @@ func waitForRatingSnapshotWorker(ctx context.Context, duration time.Duration) bo
 	}
 }
 
-// pendingRatingSnapshotJobs compares the source watermark with persisted
-// snapshots. The check runs every minute, but expensive scoring only runs for
-// a channel whose messages or stream state actually changed.
-func (s *Store) pendingRatingSnapshotJobs(ctx context.Context) ([]ratingSnapshotJob, error) {
+func ratingSnapshotLivePeriod(period string) bool {
+	switch period {
+	case "1d", "7d", "30d", "1y":
+		return true
+	default:
+		return false
+	}
+}
+
+func ratingSnapshotNeedsRefresh(period string, generatedAt time.Time, exists bool, sourceUpdatedAt, now time.Time, live bool) bool {
+	if live {
+		// The previous-stream and long historical views cannot materially help
+		// the live page enough to justify their extra full-history scans.
+		if !ratingSnapshotLivePeriod(period) {
+			return false
+		}
+		if exists && generatedAt.After(now.Add(-ratingSnapshotLiveInterval)) {
+			return false
+		}
+	}
+	return !exists || sourceUpdatedAt.After(generatedAt)
+}
+
+// pendingRatingSnapshotJobs compares compact source watermarks with persisted
+// snapshots. Live chat invalidates only four visible periods and each one is
+// rebuilt at most once per live interval. Offline lifecycle changes still
+// produce every final snapshot.
+func (s *Store) pendingRatingSnapshotJobs(ctx context.Context, state ratingSnapshotRefreshState, now time.Time) ([]ratingSnapshotJob, error) {
 	sourceVersions := make(map[string]time.Time, len(ratingSnapshotChannels))
 	for _, channel := range ratingSnapshotChannels {
 		version, err := s.ratingSourceUpdatedAt(ctx, channel)
@@ -330,7 +360,7 @@ func (s *Store) pendingRatingSnapshotJobs(ctx context.Context) ([]ratingSnapshot
 		for _, channel := range ratingSnapshotChannels {
 			key := channel + ":" + period
 			at, exists := generated[key]
-			if !exists || sourceVersions[channel].After(at) {
+			if ratingSnapshotNeedsRefresh(period, at, exists, sourceVersions[channel], now, state.activeStream) {
 				jobs = append(jobs, ratingSnapshotJob{channel: channel, period: period})
 			}
 		}
@@ -370,7 +400,7 @@ func (s *Store) RunRatingSnapshots(ctx context.Context, logger *slog.Logger) {
 			continue
 		}
 
-		jobs, err := worker.pendingRatingSnapshotJobs(ctx)
+		jobs, err := worker.pendingRatingSnapshotJobs(ctx, state, time.Now())
 		if err != nil {
 			logger.Warn("rating snapshot change check failed", "error", err)
 		} else if len(jobs) == 0 {
@@ -388,6 +418,10 @@ func (s *Store) RunRatingSnapshots(ctx context.Context, logger *slog.Logger) {
 			if deferred, reason := ratingSnapshotRefreshDeferred(state, time.Now()); deferred {
 				logger.Info("rating snapshot batch paused", "reason", reason)
 				break
+			}
+			if state.activeStream && !ratingSnapshotLivePeriod(job.period) {
+				logger.Debug("rating snapshot job skipped after stream started", "channel", job.channel, "period", job.period)
+				continue
 			}
 			started := time.Now()
 			jobCtx, cancel := context.WithTimeout(ctx, 90*time.Second)

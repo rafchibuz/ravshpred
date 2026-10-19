@@ -204,13 +204,11 @@ export function CastingView({ notify, canManage = false }) {
   useEffect(() => {
     let active = true;
     document.body.classList.add('casting-open');
-    const refresh = (initial = false) => api.loadCasting()
+    api.loadCasting()
       .then((data) => { if (active) setPayload(data); })
-      .catch((requestError) => { if (active && initial) setError(requestError.message); })
-      .finally(() => { if (active && initial) setLoading(false); });
-    refresh(true);
-    const timer = window.setInterval(() => refresh(false), 5000);
-    return () => { active = false; window.clearInterval(timer); document.body.classList.remove('casting-open'); };
+      .catch((requestError) => { if (active) setError(requestError.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; document.body.classList.remove('casting-open'); };
   }, []);
 
   useEffect(() => {

@@ -58,6 +58,10 @@ type RatingAvatarStore interface {
 	SaveRatingAvatars(context.Context, map[string]string) error
 }
 
+type ratingAvatarScheduleStore interface {
+	RatingAvatarRefreshDeferred(context.Context) (bool, error)
+}
+
 type RatingCollector struct {
 	clientID, clientSecret string
 	initial                RatingCredentials
@@ -132,6 +136,19 @@ func (c *RatingCollector) avatarLoop(ctx context.Context, store RatingAvatarStor
 	refresh := func() {
 		requestCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
+		if schedule, ok := store.(ratingAvatarScheduleStore); ok {
+			deferred, err := schedule.RatingAvatarRefreshDeferred(requestCtx)
+			if err != nil {
+				if ctx.Err() == nil {
+					c.logger.Warn("rating avatar schedule check failed", "error", err)
+				}
+				return
+			}
+			if deferred {
+				c.logger.Debug("rating avatar refresh deferred", "reason", "stream_live")
+				return
+			}
+		}
 		targets, err := store.RatingAvatarTargets(requestCtx, 100)
 		if err != nil {
 			if ctx.Err() == nil {
@@ -206,7 +223,6 @@ func (c *RatingCollector) reconcileStreams(ctx context.Context) error {
 			return err
 		}
 		c.mu.Lock()
-		current := c.current[login]
 		if live != nil {
 			c.current[login] = live
 		} else {
@@ -218,8 +234,12 @@ func (c *RatingCollector) reconcileStreams(ctx context.Context) error {
 			if err := c.saveStream(ctx, login, live); err != nil {
 				return err
 			}
-		case current != nil:
-			if err := c.store.CloseRatingStreams(ctx, login, current.ID, time.Now().UTC()); err != nil {
+		case live == nil:
+			// Close every dangling row for this channel, not only the stream kept
+			// in memory. After an API restart current is empty, while PostgreSQL
+			// can still contain an open stream that would otherwise freeze all
+			// rating snapshots indefinitely.
+			if err := c.store.CloseRatingStreams(ctx, login, "", time.Now().UTC()); err != nil {
 				return err
 			}
 		}

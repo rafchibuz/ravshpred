@@ -69,23 +69,56 @@ func TestPendingRatingSnapshotJobsSkipIdleAndTargetChangedChannel(t *testing.T) 
 			}
 		}
 	}
-	jobs, err := s.pendingRatingSnapshotJobs(ctx)
+	state, err := s.ratingSnapshotState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := s.pendingRatingSnapshotJobs(ctx, state, time.Now())
 	if err != nil || len(jobs) != 0 {
 		t.Fatalf("idle snapshots must be reused: %+v %v", jobs, err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO twitch_rating_streams(id,channel_login,started_at,observed_live)
+		VALUES('active-stream','ravshann',now()-interval '2 hours',true)`); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := s.pool.Exec(ctx, `UPDATE twitch_rating_state
 		SET last_event_at=now()+interval '1 minute' WHERE channel_login='ravshann'`); err != nil {
 		t.Fatal(err)
 	}
-	jobs, err = s.pendingRatingSnapshotJobs(ctx)
-	if err != nil || len(jobs) != 0 {
-		t.Fatalf("chat messages alone must not continuously invalidate snapshots: %+v %v", jobs, err)
-	}
-	if _, err := s.pool.Exec(ctx, `INSERT INTO twitch_rating_streams(id,channel_login,started_at,ended_at,observed_live)
-		VALUES('completed-stream','ravshann',now()-interval '2 hours',now()+interval '1 minute',true)`); err != nil {
+	state, err = s.ratingSnapshotState(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	jobs, err = s.pendingRatingSnapshotJobs(ctx)
+	jobs, err = s.pendingRatingSnapshotJobs(ctx, state, time.Now())
+	if err != nil || len(jobs) != 0 {
+		t.Fatalf("fresh live snapshots must be throttled: %+v %v", jobs, err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE twitch_rating_snapshots
+		SET generated_at=now()-interval '6 minutes'
+		WHERE split_part(key, ':', 2)=ANY($1)`, []string{"1d", "7d", "30d", "1y"}); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err = s.pendingRatingSnapshotJobs(ctx, state, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 8 {
+		t.Fatalf("live chat must refresh four periods for changed and combined channels: %+v", jobs)
+	}
+	for _, job := range jobs {
+		if !ratingSnapshotLivePeriod(job.period) || job.channel == "ravshanbtw" {
+			t.Fatalf("unexpected live snapshot job: %+v", job)
+		}
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE twitch_rating_streams
+		SET ended_at=now()+interval '1 minute' WHERE id='active-stream'`); err != nil {
+		t.Fatal(err)
+	}
+	state, err = s.ratingSnapshotState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err = s.pendingRatingSnapshotJobs(ctx, state, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +141,7 @@ func TestRatingSnapshotRefreshDeferred(t *testing.T) {
 		wantReason   string
 	}{
 		{name: "idle", state: ratingSnapshotRefreshState{lastLifecycleEvent: now.Add(-time.Hour)}},
-		{name: "live", state: ratingSnapshotRefreshState{activeStream: true, lastLifecycleEvent: now.Add(-time.Hour)}, wantDeferred: true, wantReason: "stream_live"},
+		{name: "live", state: ratingSnapshotRefreshState{activeStream: true, lastLifecycleEvent: now.Add(-time.Minute)}},
 		{name: "cooldown", state: ratingSnapshotRefreshState{lastLifecycleEvent: now.Add(-time.Minute)}, wantDeferred: true, wantReason: "post_stream_cooldown"},
 		{name: "cooldown complete", state: ratingSnapshotRefreshState{lastLifecycleEvent: now.Add(-ratingSnapshotQuietPeriod)}},
 	}
@@ -119,6 +152,23 @@ func TestRatingSnapshotRefreshDeferred(t *testing.T) {
 				t.Fatalf("got (%v, %q), want (%v, %q)", deferred, reason, test.wantDeferred, test.wantReason)
 			}
 		})
+	}
+}
+
+func TestRatingSnapshotNeedsRefresh(t *testing.T) {
+	now := time.Now()
+	source := now.Add(-time.Minute)
+	if ratingSnapshotNeedsRefresh("30d", now.Add(-time.Minute), true, source, now, true) {
+		t.Fatal("fresh live snapshot must be throttled")
+	}
+	if !ratingSnapshotNeedsRefresh("30d", now.Add(-ratingSnapshotLiveInterval), true, source, now, true) {
+		t.Fatal("changed live snapshot must refresh after the interval")
+	}
+	if ratingSnapshotNeedsRefresh("90d", time.Time{}, false, source, now, true) {
+		t.Fatal("heavy historical period must not be created during a stream")
+	}
+	if !ratingSnapshotNeedsRefresh("90d", time.Time{}, false, source, now, false) {
+		t.Fatal("missing historical period must be created offline")
 	}
 }
 
