@@ -217,7 +217,7 @@ var ratingSnapshotChannels = []string{"all", "ravshann", "ravshanbtw"}
 const (
 	ratingSnapshotPollInterval = time.Minute
 	ratingSnapshotQuietPeriod  = 5 * time.Minute
-	ratingSnapshotLiveInterval = 5 * time.Minute
+	ratingSnapshotLiveInterval = 10 * time.Minute
 	ratingSnapshotJobPause     = 15 * time.Second
 )
 
