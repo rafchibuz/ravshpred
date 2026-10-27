@@ -211,7 +211,7 @@ func (s *Store) publishRatingSnapshot(ctx context.Context, key string, result do
 	return tx.Commit(ctx)
 }
 
-var ratingSnapshotPeriods = []string{"last_stream", "1d", "7d", "30d", "90d", "1y", "all"}
+var ratingSnapshotPeriods = []string{"last_stream", "1d", "3d", "7d", "30d", "90d", "1y", "all"}
 var ratingSnapshotChannels = []string{"all", "ravshann", "ravshanbtw"}
 
 const (
@@ -296,7 +296,7 @@ func waitForRatingSnapshotWorker(ctx context.Context, duration time.Duration) bo
 
 func ratingSnapshotLivePeriod(period string) bool {
 	switch period {
-	case "1d", "7d", "30d", "1y":
+	case "1d", "3d", "7d", "30d", "1y":
 		return true
 	default:
 		return false
@@ -318,7 +318,7 @@ func ratingSnapshotNeedsRefresh(period string, generatedAt time.Time, exists boo
 }
 
 // pendingRatingSnapshotJobs compares compact source watermarks with persisted
-// snapshots. Live chat invalidates only four visible periods and each one is
+// snapshots. Live chat invalidates only the shorter visible periods and each one is
 // rebuilt at most once per live interval. Offline lifecycle changes still
 // produce every final snapshot.
 func (s *Store) pendingRatingSnapshotJobs(ctx context.Context, state ratingSnapshotRefreshState, now time.Time) ([]ratingSnapshotJob, error) {
@@ -447,7 +447,7 @@ func snapshotSince(period string, now time.Time) *time.Time {
 		value := now.AddDate(-1, 0, 0)
 		return &value
 	}
-	days := map[string]int{"1d": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365}[period]
+	days := map[string]int{"1d": 1, "3d": 3, "7d": 7, "30d": 30, "90d": 90, "1y": 365}[period]
 	if days == 0 {
 		return nil
 	}

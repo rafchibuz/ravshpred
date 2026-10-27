@@ -94,16 +94,16 @@ func TestPendingRatingSnapshotJobsSkipIdleAndTargetChangedChannel(t *testing.T) 
 		t.Fatalf("fresh live snapshots must be throttled: %+v %v", jobs, err)
 	}
 	if _, err := s.pool.Exec(ctx, `UPDATE twitch_rating_snapshots
-		SET generated_at=now()-interval '6 minutes'
-		WHERE split_part(key, ':', 2)=ANY($1)`, []string{"1d", "7d", "30d", "1y"}); err != nil {
+		SET generated_at=now()-interval '11 minutes'
+		WHERE split_part(key, ':', 2)=ANY($1)`, []string{"1d", "3d", "7d", "30d", "1y"}); err != nil {
 		t.Fatal(err)
 	}
 	jobs, err = s.pendingRatingSnapshotJobs(ctx, state, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(jobs) != 8 {
-		t.Fatalf("live chat must refresh four periods for changed and combined channels: %+v", jobs)
+	if len(jobs) != 10 {
+		t.Fatalf("live chat must refresh five periods for changed and combined channels: %+v", jobs)
 	}
 	for _, job := range jobs {
 		if !ratingSnapshotLivePeriod(job.period) || job.channel == "ravshanbtw" {
@@ -174,7 +174,7 @@ func TestRatingSnapshotNeedsRefresh(t *testing.T) {
 
 func TestSnapshotPeriods(t *testing.T) {
 	now := time.Now()
-	for period, days := range map[string]int{"1d": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365} {
+	for period, days := range map[string]int{"1d": 1, "3d": 3, "7d": 7, "30d": 30, "90d": 90, "1y": 365} {
 		got := snapshotSince(period, now)
 		if got == nil || now.Sub(*got) != time.Duration(days)*24*time.Hour {
 			t.Fatalf("wrong period %s", period)

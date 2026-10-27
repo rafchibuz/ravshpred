@@ -147,7 +147,7 @@ func (s *Server) StartRatingCacheWarmer(ctx context.Context) {
 	}
 	go func() {
 		warm := func() {
-			for _, period := range []string{"last_stream", "1d", "7d", "30d", "1y"} {
+			for _, period := range []string{"last_stream", "1d", "3d", "7d", "30d", "1y"} {
 				if ctx.Err() != nil {
 					return
 				}
@@ -180,6 +180,8 @@ func ratingSince(period string, now time.Time) *time.Time {
 	switch period {
 	case "1d":
 		value = now.AddDate(0, 0, -1)
+	case "3d":
+		value = now.AddDate(0, 0, -3)
 	case "7d":
 		value = now.AddDate(0, 0, -7)
 	case "30d":
@@ -276,7 +278,7 @@ func (s *Server) viewerRating(w http.ResponseWriter, r *http.Request) {
 	period := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("period")))
 	now := time.Now().UTC()
 	switch period {
-	case "1d", "7d", "30d", "1y", "90d", "last_stream":
+	case "1d", "3d", "7d", "30d", "1y", "90d", "last_stream":
 	case "":
 		period = "30d"
 	case "all":
@@ -345,7 +347,7 @@ func (s *Server) viewerRatingLookup(w http.ResponseWriter, r *http.Request) {
 		period = "1y"
 	}
 	switch period {
-	case "1d", "7d", "30d", "90d", "1y", "last_stream", "all":
+	case "1d", "3d", "7d", "30d", "90d", "1y", "last_stream", "all":
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_period", "Неизвестный период рейтинга")
 		return
