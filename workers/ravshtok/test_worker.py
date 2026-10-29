@@ -67,6 +67,38 @@ class CleanupTests(unittest.TestCase):
             publish.assert_not_called()
         self.assertFalse(work.exists())
 
+    def test_tiktok_download_uses_impersonation_and_optional_proxy(self):
+        work = self.root / 'prepared'
+        work.mkdir()
+        (work / 'source.mp4').write_bytes(b'video')
+        commands = []
+
+        def fake_run(command, **_kwargs):
+            commands.append(command)
+            if command[0] == 'ffprobe':
+                return MagicMock(stdout='{"streams":[{"codec_type":"video","codec_name":"h264","width":720,"height":1280,"pix_fmt":"yuv420p"}],"format":{"duration":"2"}}')
+            if command[0] == 'ffmpeg' and command[-1].endswith('video.mp4'):
+                Path(command[-1]).write_bytes(b'normalized')
+            if command[0] == 'ffmpeg' and command[-1].endswith('poster.webp'):
+                Path(command[-1]).write_bytes(b'poster')
+            return MagicMock(stdout='', stderr='')
+
+        with patch.object(worker, 'run', side_effect=fake_run), \
+             patch.object(worker.tempfile, 'mkdtemp', return_value=str(work)), \
+             patch.object(worker, 'PROXY_URL', 'socks5://proxy.invalid:1080'), \
+             patch.object(worker, 'IMPERSONATE_TARGET', 'chrome'):
+            normalized, poster, _metadata = worker.prepare_media({
+                'submission_id': 'test',
+                'source_url': 'https://www.tiktok.com/@test/video/123',
+                'platform': 'tiktok',
+            })
+        download = commands[0]
+        self.assertIn('--impersonate', download)
+        self.assertEqual(download[download.index('--impersonate') + 1], 'chrome')
+        self.assertIn('--proxy', download)
+        self.assertTrue(normalized.exists())
+        self.assertTrue(poster.exists())
+
     @unittest.skipUnless(os.getenv('TEST_DATABASE_URL'), 'isolated test database required')
     def test_cleanup_against_postgres(self):
         schema = 'worker_test_' + uuid4().hex

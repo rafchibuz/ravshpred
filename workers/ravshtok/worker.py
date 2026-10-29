@@ -29,6 +29,8 @@ if FFMPEG_PRESET not in {"ultrafast", "superfast", "veryfast", "faster", "fast",
 MAX_ATTEMPTS = max(1, int(os.getenv("RAVSHTOK_MAX_ATTEMPTS", "5")))
 INITIAL_RETENTION_DAYS = max(30, int(os.getenv("RAVSHTOK_INITIAL_RETENTION_DAYS", "90")))
 DIAGNOSTICS_SECONDS = max(60, int(os.getenv("RAVSHTOK_DIAGNOSTICS_SECONDS", "300")))
+PROXY_URL = os.getenv("RAVSHTOK_PROXY_URL", "").strip()
+IMPERSONATE_TARGET = os.getenv("RAVSHTOK_IMPERSONATE", "chrome").strip()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("ravshtok-worker")
@@ -142,15 +144,20 @@ def prepare_media(job: dict) -> tuple[Path, Path, dict]:
     try:
         output_template = str(work_dir / "source.%(ext)s")
         try:
-            download = run([
+            download_command = [
                 "yt-dlp", "--no-playlist", "--no-progress",
                 "--restrict-filenames", "--max-filesize", f"{MAX_SIZE_MB}M",
                 # Instagram often omits the duration until the file has been downloaded.
                 # The optional comparison keeps such Reels; ffprobe validates the real
                 # duration below before anything is published.
                 "--match-filter", f"duration <=? {MAX_DURATION}",
-                "-f", "bv*+ba/b", "-o", output_template, source_url,
-            ])
+            ]
+            if job.get("platform") == "tiktok" and IMPERSONATE_TARGET:
+                download_command.extend(["--impersonate", IMPERSONATE_TARGET])
+            if PROXY_URL:
+                download_command.extend(["--proxy", PROXY_URL])
+            download_command.extend(["-f", "bv*+ba/b", "-o", output_template, source_url])
+            download = run(download_command)
         except subprocess.CalledProcessError as error:
             details = (error.stderr or error.stdout or "").strip().splitlines()
             detail = details[-1][:900] if details else "yt-dlp завершился с ошибкой"
