@@ -151,9 +151,9 @@ export async function loadWorkspace(role) {
 
   if (role === 'moderator' || role === 'owner') {
     requests.push(
-      request('/moderation/submissions?status=pending&limit=100'),
-      request('/moderation/submissions?status=approved&limit=100'),
-      request('/moderation/submissions?status=rejected&limit=100'),
+      loadModerationPages('pending'),
+      loadModerationPages('approved'),
+      loadModerationPages('rejected'),
     );
   } else if (role === 'user') {
     requests.push(request('/submissions/mine?limit=100'));
@@ -281,6 +281,8 @@ export function replaceCastingParticipants(participants) {
 
 function normalizeRavshTOKItem(item) {
   return {
+    views: Number(item.views) || 0,
+    uniqueViewers: Number(item.unique_viewers) || 0,
     id: item.id,
     title: item.title || 'Без названия',
     description: item.description || '',
@@ -302,9 +304,10 @@ function normalizeRavshTOKItem(item) {
   };
 }
 
-export function loadRavshTOK({ mode = 'new', platform = 'all', sort = 'new', offset = 0, limit = 12 } = {}) {
-  const query = new URLSearchParams({ mode, platform, sort, offset: String(offset), limit: String(limit) });
-  return request(`/ravshtok?${query}`).then((payload) => ({
+export function loadRavshTOK({ mode = 'new', platform = 'all', sort = 'random', excludeIds = [], limit = 12, signal } = {}) {
+  const query = new URLSearchParams({ mode, platform, sort, limit: String(limit) });
+  return request(`/ravshtok/feed?${query}`, { method: 'POST', body: { exclude_ids: excludeIds }, signal }).then((payload) => ({
+    unavailableIds: payload.data?.unavailable_ids || [],
     items: (payload.data?.items || []).map(normalizeRavshTOKItem),
     hasMore: Boolean(payload.data?.has_more),
   }));
@@ -344,8 +347,21 @@ export async function loadPendingSubmissions() {
 }
 
 export async function loadModerationSubmissions(status) {
-  const payload = await request(`/moderation/submissions?status=${encodeURIComponent(status)}&limit=100`);
+  const payload = await loadModerationPages(status);
   return (payload.data || []).map(normalizeVideo);
+}
+
+async function loadModerationPages(status) {
+  const items = new Map();
+  let cursor = '';
+  do {
+    const payload = await request(`/moderation/submissions?${new URLSearchParams({ status, limit: '100', cursor })}`);
+    for (const item of payload.data || []) items.set(item.id, item);
+    const next = payload.next_cursor || '';
+    if (next === cursor) break;
+    cursor = next;
+  } while (cursor);
+  return { data: [...items.values()] };
 }
 
 export async function loadMySubmissions() {

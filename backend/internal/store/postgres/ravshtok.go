@@ -11,6 +11,9 @@ import (
 )
 
 func (s *Store) ListRavshTOK(ctx context.Context, params store.RavshTOKParams) (domain.RavshTOKFeed, error) {
+	if params.ExcludeIDs == nil {
+		params.ExcludeIDs = []string{}
+	}
 	limit := params.Limit
 	if limit < 1 {
 		limit = 12
@@ -27,6 +30,7 @@ func (s *Store) ListRavshTOK(ctx context.Context, params store.RavshTOKParams) (
 			s.id::text,s.title,s.submitter_comment,s.source_url,rm.platform,rm.status,
 			rm.media_path,rm.poster_path,rm.duration_seconds,rm.width,rm.height,
 			COALESCE(v.likes,0),COALESCE(v.dislikes,0),COALESCE(uv.value,0),
+			COALESCE(views.total,0),COALESCE(views.unique_viewers,0),
 			rv.user_id IS NOT NULL,sm.submission_id IS NOT NULL,
 			u.id::text,COALESCE(u.twitch_id,''),COALESCE(u.twitch_login,''),
 			u.display_name,u.avatar_url,u.role::text,u.created_at,s.created_at
@@ -41,8 +45,13 @@ func (s *Store) ListRavshTOK(ctx context.Context, params store.RavshTOKParams) (
 			       count(*) FILTER (WHERE value=-1) AS dislikes
 			FROM votes WHERE submission_id=s.id
 		) v ON true
+		LEFT JOIN LATERAL (
+			SELECT sum(view_count) AS total,count(*) AS unique_viewers
+			FROM ravshtok_views WHERE submission_id=s.id
+		) views ON true
 		WHERE s.status='approved' AND s.deleted_at IS NULL AND s.source_type='short_video'
 		  AND rm.status='ready'
+		  AND NOT (s.id::text = ANY($8::text[]))
 		  AND ($2='all' OR rm.platform=$2)
 		  AND (
 			$3='all'
@@ -50,10 +59,11 @@ func (s *Store) ListRavshTOK(ctx context.Context, params store.RavshTOKParams) (
 			OR ($3='watched' AND CASE WHEN $4='owner' THEN sm.submission_id IS NOT NULL ELSE rv.user_id IS NOT NULL END)
 		  )
 		ORDER BY
+			CASE WHEN $5='random' THEN random() END,
 			CASE WHEN $5='popular' THEN COALESCE(v.likes,0) END DESC,
 			CASE WHEN $5='popular' THEN COALESCE(v.dislikes,0) END ASC,
 			s.created_at DESC,s.id DESC
-		LIMIT $6 OFFSET $7`, params.UserID, params.Platform, params.Mode, string(params.Role), params.Sort, limit+1, params.Offset)
+		LIMIT $6 OFFSET $7`, params.UserID, params.Platform, params.Mode, string(params.Role), params.Sort, limit+1, params.Offset, params.ExcludeIDs)
 	if err != nil {
 		return domain.RavshTOKFeed{}, err
 	}
@@ -67,7 +77,7 @@ func (s *Store) ListRavshTOK(ctx context.Context, params store.RavshTOKParams) (
 		if err := rows.Scan(
 			&item.ID, &item.Title, &item.Description, &item.SourceURL, &item.Platform, &item.MediaStatus,
 			&mediaPath, &posterPath, &item.DurationSeconds, &item.Width, &item.Height,
-			&item.Likes, &item.Dislikes, &item.UserVote, &item.UserViewed, &item.StreamerWatched,
+			&item.Likes, &item.Dislikes, &item.UserVote, &item.Views, &item.UniqueViewers, &item.UserViewed, &item.StreamerWatched,
 			&item.Author.ID, &item.Author.TwitchID, &item.Author.Login, &item.Author.Display,
 			&item.Author.AvatarURL, &role, &item.Author.CreatedAt, &item.CreatedAt,
 		); err != nil {
@@ -89,7 +99,30 @@ func (s *Store) ListRavshTOK(ctx context.Context, params store.RavshTOKParams) (
 	if hasMore {
 		items = items[:limit]
 	}
-	return domain.RavshTOKFeed{Items: items, HasMore: hasMore}, nil
+	unavailable := []string{}
+	if len(params.ExcludeIDs) > 0 {
+		missing, err := s.pool.Query(ctx, `
+			SELECT id FROM unnest($1::text[]) AS known(id)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM submissions s JOIN ravshtok_media rm ON rm.submission_id=s.id
+				WHERE s.id::text=known.id AND s.deleted_at IS NULL AND s.status='approved' AND rm.status='ready'
+			)`, params.ExcludeIDs)
+		if err != nil {
+			return domain.RavshTOKFeed{}, err
+		}
+		defer missing.Close()
+		for missing.Next() {
+			var id string
+			if err := missing.Scan(&id); err != nil {
+				return domain.RavshTOKFeed{}, err
+			}
+			unavailable = append(unavailable, id)
+		}
+		if err := missing.Err(); err != nil {
+			return domain.RavshTOKFeed{}, err
+		}
+	}
+	return domain.RavshTOKFeed{Items: items, HasMore: hasMore, UnavailableIDs: unavailable}, nil
 }
 
 func (s *Store) MarkRavshTOKViewed(ctx context.Context, submissionID, userID string, role domain.Role) error {

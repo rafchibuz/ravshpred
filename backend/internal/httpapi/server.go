@@ -204,6 +204,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.publicSettings)
 	mux.HandleFunc("GET /api/videos", s.feed)
 	mux.HandleFunc("GET /api/ravshtok", s.ravshTOKFeed)
+	mux.HandleFunc("POST /api/ravshtok/feed", s.ravshTOKFeed)
 	mux.HandleFunc("POST /api/ravshtok/{id}/view", s.ravshTOKView)
 	mux.HandleFunc("PUT /api/ravshtok/{id}/vote", s.ravshTOKVote)
 	mux.HandleFunc("GET /api/streamer", s.streamer)
@@ -909,9 +910,9 @@ func (s *Server) ravshTOKFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	sort := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
 	if sort == "" {
-		sort = "new"
+		sort = "random"
 	}
-	if sort != "new" && sort != "popular" {
+	if sort != "random" && sort != "new" && sort != "popular" {
 		writeError(w, http.StatusBadRequest, "invalid_sort", "Неизвестная сортировка RavshTOK")
 		return
 	}
@@ -919,6 +920,26 @@ func (s *Server) ravshTOKFeed(w http.ResponseWriter, r *http.Request) {
 		Mode: mode, Platform: platform, Sort: sort,
 		Limit: intQuery(r, "limit", 12), Offset: intQuery(r, "offset", 0),
 		Role: "guest",
+	}
+	if r.Method == http.MethodPost {
+		var input struct {
+			ExcludeIDs []string `json:"exclude_ids"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if len(input.ExcludeIDs) > 5000 {
+			writeError(w, http.StatusBadRequest, "feed_limit", "Откройте подборку заново: достигнут лимит одной сессии")
+			return
+		}
+		for _, id := range input.ExcludeIDs {
+			if len(id) != 36 {
+				writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID ролика")
+				return
+			}
+		}
+		params.ExcludeIDs = input.ExcludeIDs
+		params.Offset = 0
 	}
 	if actor, err := s.actor(r); err == nil && actor != nil {
 		params.UserID = actor.User.ID
@@ -1479,6 +1500,18 @@ func (s *Server) moderationList(w http.ResponseWriter, r *http.Request) {
 	status := domain.SubmissionStatus(r.URL.Query().Get("status"))
 	if status == "" {
 		status = domain.StatusPending
+	}
+	if database, ok := s.store.(interface {
+		ListModerationPage(context.Context, domain.SubmissionStatus, int, string) ([]domain.Video, string, error)
+	}); ok {
+		items, next, err := database.ListModerationPage(r.Context(), status, intQuery(r, "limit", 50), r.URL.Query().Get("cursor"))
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+		w.Header().Set("Cache-Control", "private, no-store")
+		writeJSON(w, http.StatusOK, map[string]any{"data": items, "next_cursor": next})
+		return
 	}
 	items, err := s.store.ListByStatus(r.Context(), status, intQuery(r, "limit", 50))
 	if err != nil {

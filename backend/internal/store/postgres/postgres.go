@@ -374,7 +374,7 @@ func (s *Store) ListCategories(ctx context.Context) ([]domain.Category, error) {
 const videoSelect = `
 	SELECT
 		s.id::text, s.youtube_id, s.youtube_url, s.title, s.channel_title, s.thumbnail_url,
-		s.duration_seconds, s.view_count, s.youtube_like_count, s.status::text,
+		s.duration_seconds, CASE WHEN s.source_type='short_video' THEN COALESCE((SELECT sum(view_count) FROM ravshtok_views WHERE submission_id=s.id),0) ELSE s.view_count END, s.youtube_like_count, s.status::text,
 		s.submitter_comment, s.moderator_comment, s.version, s.created_at, s.updated_at,
 		s.kinopoisk_url, s.movie_title, s.movie_year, s.movie_studio, s.movie_rating,
 		s.content_kind, s.source_type, s.source_url,
@@ -464,14 +464,31 @@ func (s *Store) UpdateYouTubeMetadata(
 }
 
 func (s *Store) ListByStatus(ctx context.Context, status domain.SubmissionStatus, limit int) ([]domain.Video, error) {
+	items, _, err := s.ListModerationPage(ctx, status, limit, "")
+	return items, err
+}
+
+func (s *Store) ListModerationPage(ctx context.Context, status domain.SubmissionStatus, limit int, cursor string) ([]domain.Video, string, error) {
+	limit = clampLimit(limit)
+	created, id := decodeCursor(cursor)
 	rows, err := s.pool.Query(ctx, videoSelect+`
 		WHERE s.status = $2 AND s.deleted_at IS NULL
-		ORDER BY s.created_at ASC LIMIT $3`, "", status, clampLimit(limit))
+		AND ($4::timestamptz IS NULL OR (s.created_at,s.id::text) > ($4,$5))
+		ORDER BY s.created_at ASC,s.id::text ASC LIMIT $3`, "", status, limit+1, created, id)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
-	return scanVideos(rows)
+	items, err := scanVideos(rows)
+	if err != nil {
+		return nil, "", err
+	}
+	next := ""
+	if len(items) > limit {
+		items = items[:limit]
+		next = encodeCursor(items[limit-1].CreatedAt, items[limit-1].ID)
+	}
+	return items, next, nil
 }
 
 func (s *Store) ListMine(ctx context.Context, userID string, limit int) ([]domain.Video, error) {
@@ -826,15 +843,23 @@ func (s *Store) UpdateMovieMetadata(ctx context.Context, input store.UpdateMovie
 }
 
 func (s *Store) DeleteVideo(ctx context.Context, submissionID, actorID string) error {
-	command, err := s.pool.Exec(ctx, `UPDATE submissions SET deleted_at=now(),updated_at=now() WHERE id::text=$1 AND deleted_at IS NULL`, submissionID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	command, err := tx.Exec(ctx, `UPDATE submissions SET deleted_at=now(),updated_at=now() WHERE id::text=$1 AND deleted_at IS NULL`, submissionID)
 	if err != nil {
 		return err
 	}
 	if command.RowsAffected() != 1 {
 		return store.ErrNotFound
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'delete','submission',$2)`, actorID, submissionID)
-	return err
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(actor_id,action,target_type,target_id) VALUES($1,'delete','submission',$2)`, actorID, submissionID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 const unbanAppealSelect = `

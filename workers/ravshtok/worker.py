@@ -7,6 +7,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -32,11 +33,13 @@ DIAGNOSTICS_SECONDS = max(60, int(os.getenv("RAVSHTOK_DIAGNOSTICS_SECONDS", "300
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("ravshtok-worker")
 running = True
+stop_event = threading.Event()
 
 
 def stop_worker(_signum, _frame):
     global running
     running = False
+    stop_event.set()
 
 
 signal.signal(signal.SIGTERM, stop_worker)
@@ -231,11 +234,20 @@ def finish_job(connection, job: dict, normalized: Path, poster: Path, metadata: 
     poster_name = f"{job['submission_id']}.webp"
     final_video = OUTPUT_DIR / video_name
     final_poster = OUTPUT_DIR / poster_name
-    place_media(normalized, final_video)
-    place_media(poster, final_poster)
-    shutil.rmtree(normalized.parent, ignore_errors=True)
-
     with connection.transaction(), connection.cursor() as cursor:
+        # Serialize publication with deletion/moderation. A finished download must
+        # never bring a deleted submission back to life.
+        cursor.execute("SELECT status,deleted_at FROM submissions WHERE id::text=%s FOR UPDATE", (job["submission_id"],))
+        submission = cursor.fetchone()
+        if not submission or submission[0] != "approved" or submission[1] is not None:
+            cursor.execute("UPDATE ravshtok_media SET status=CASE WHEN %s THEN 'expired' ELSE 'pending' END,lease_until=NULL,updated_at=now() WHERE submission_id::text=%s",
+                           (not submission or submission[1] is not None, job["submission_id"]))
+            shutil.rmtree(normalized.parent, ignore_errors=True)
+            logger.info("media publication cancelled id=%s", job["submission_id"])
+            return False
+        place_media(normalized, final_video)
+        place_media(poster, final_poster)
+        shutil.rmtree(normalized.parent, ignore_errors=True)
         cursor.execute(
             """
             UPDATE ravshtok_media
@@ -250,6 +262,7 @@ def finish_job(connection, job: dict, normalized: Path, poster: Path, metadata: 
                 INITIAL_RETENTION_DAYS, job["submission_id"],
             ),
         )
+    return True
 
 
 def fail_job(connection, job: dict, error: Exception):
@@ -268,48 +281,75 @@ def fail_job(connection, job: dict, error: Exception):
     logger.warning("media preparation failed id=%s attempt=%s error=%s", job["submission_id"], job["attempts"], message)
 
 
+def remove_media_file(relative):
+    if not relative:
+        return
+    path = (MEDIA_ROOT / relative).resolve()
+    if path.parent != OUTPUT_DIR.resolve() or path.suffix not in {".mp4", ".webp"}:
+        raise ValueError("invalid media cleanup path")
+    path.unlink(missing_ok=True)
+
+
 def cleanup_expired(connection):
+    removed = 0
     with connection.transaction(), connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
             """
-            SELECT submission_id::text,media_path,poster_path
-            FROM ravshtok_media
-            WHERE status='ready' AND expires_at IS NOT NULL AND expires_at <= now()
-            FOR UPDATE SKIP LOCKED
+            SELECT rm.submission_id::text,rm.media_path,rm.poster_path
+            FROM ravshtok_media rm JOIN submissions s ON s.id=rm.submission_id
+            WHERE (s.deleted_at IS NOT NULL AND (rm.status <> 'expired' OR rm.media_path <> '' OR rm.poster_path <> ''))
+               OR (rm.status='ready' AND rm.expires_at IS NOT NULL AND rm.expires_at <= now())
+            ORDER BY s.deleted_at NULLS LAST,rm.expires_at
+            FOR UPDATE OF rm SKIP LOCKED
             LIMIT 50
             """
         )
         rows = cursor.fetchall()
         for row in rows:
-            for relative in (row["media_path"], row["poster_path"]):
-                path = MEDIA_ROOT / relative
-                try:
-                    path.relative_to(OUTPUT_DIR)
-                    path.unlink(missing_ok=True)
-                except (ValueError, OSError):
-                    logger.warning("could not remove expired media path=%s", path)
+            try:
+                for relative in (row["media_path"], row["poster_path"]):
+                    remove_media_file(relative)
+            except (ValueError, OSError):
+                logger.exception("media cleanup failed id=%s; will retry", row["submission_id"])
+                continue
             cursor.execute(
                 """
                 UPDATE ravshtok_media
-                SET status='expired',media_path='',poster_path='',updated_at=now()
+                SET status='expired',media_path='',poster_path='',size_bytes=0,lease_until=NULL,updated_at=now()
                 WHERE submission_id::text=%s
                 """,
                 (row["submission_id"],),
             )
-    removed = len(rows)
+            removed += 1
+            logger.info("media files removed id=%s", row["submission_id"])
     with connection.transaction(), connection.cursor() as cursor:
         cursor.execute("SELECT submission_id::text FROM ravshtok_media WHERE media_path <> '' OR poster_path <> ''")
         known_ids = {row[0] for row in cursor.fetchall()}
-    for video_path in list(OUTPUT_DIR.glob("*.mp4"))[:100]:
-        if video_path.stem in known_ids:
+    for video_path in OUTPUT_DIR.iterdir():
+        if video_path.suffix not in {".mp4", ".webp", ".part"} or video_path.stem in known_ids:
             continue
         try:
+            # A publisher may have copied a file but not committed its DB row yet.
+            if time.time() - video_path.stat().st_mtime < 3600:
+                continue
             video_path.unlink(missing_ok=True)
-            (OUTPUT_DIR / f"{video_path.stem}.webp").unlink(missing_ok=True)
             removed += 1
         except OSError:
             logger.warning("could not remove orphaned media id=%s", video_path.stem)
     return removed
+
+
+def cleanup_loop():
+    # Separate connection/thread: slow downloads must not delay deleted-file cleanup.
+    while not stop_event.is_set():
+        try:
+            with psycopg.connect(DATABASE_URL, connect_timeout=10) as connection:
+                removed = cleanup_expired(connection)
+                if removed:
+                    logger.info("media cleanup completed count=%s", removed)
+        except Exception:
+            logger.exception("media cleanup failed; will retry")
+        stop_event.wait(30)
 
 
 def log_diagnostics(connection):
@@ -338,7 +378,6 @@ def connect():
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    last_cleanup = 0.0
     last_diagnostics = 0.0
     logger.info(
         "worker started poll_seconds=%s max_duration=%s max_size_mb=%s download_timeout=%s "
@@ -346,6 +385,8 @@ def main():
         POLL_SECONDS, MAX_DURATION, MAX_SIZE_MB, DOWNLOAD_TIMEOUT, TRANSCODE_TIMEOUT,
         FFMPEG_PRESET, MAX_ATTEMPTS, INITIAL_RETENTION_DAYS,
     )
+    cleaner = threading.Thread(target=cleanup_loop, name="media-cleanup", daemon=True)
+    cleaner.start()
     connection = connect()
     while running and connection is not None:
         try:
@@ -353,11 +394,6 @@ def main():
                 connection = connect()
                 continue
             now = time.monotonic()
-            if now - last_cleanup > 3600:
-                removed = cleanup_expired(connection)
-                if removed:
-                    logger.info("expired media removed count=%s", removed)
-                last_cleanup = now
             if now - last_diagnostics > DIAGNOSTICS_SECONDS:
                 log_diagnostics(connection)
                 last_diagnostics = now
@@ -369,7 +405,8 @@ def main():
             job_started = time.monotonic()
             try:
                 normalized, poster, metadata = prepare_media(job)
-                finish_job(connection, job, normalized, poster, metadata)
+                if not finish_job(connection, job, normalized, poster, metadata):
+                    continue
                 logger.info(
                     "media ready id=%s duration=%s size=%s processing_ms=%s",
                     job["submission_id"], metadata["duration"], metadata["size"], int((time.monotonic() - job_started) * 1000),

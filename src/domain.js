@@ -49,6 +49,15 @@ export function newPendingSubmissions(knownIds, videos) {
   return videos.filter((video) => video.status === 'pending' && !known.has(video.id));
 }
 
+export function mergeModerationSubmissions(currentVideos, refreshedVideos, refreshedStatuses) {
+  const statuses = new Set(refreshedStatuses || []);
+  const refreshedById = new Map((refreshedVideos || []).map((video) => [video.id, video]));
+  const preserved = (currentVideos || []).filter((video) => (
+    !statuses.has(video.status) && !refreshedById.has(video.id)
+  ));
+  return [...(refreshedVideos || []), ...preserved];
+}
+
 export function deduplicateTwitchClips(clips, toleranceSeconds = 30) {
   const kept = [];
   const momentsByVideo = new Map();

@@ -5,6 +5,7 @@ import {
   deduplicateTwitchClips,
   isDuplicate,
   latestTwitchStreamClips,
+  mergeModerationSubmissions,
   newPendingSubmissions,
   parseYouTubeId,
   recentSubmissionCount,
@@ -56,6 +57,23 @@ test('звуковое уведомление выбирает только но
     { id: 'approved', status: 'approved' },
   ];
   assert.deepEqual(newPendingSubmissions(new Set(['old']), videos), [{ id: 'new', status: 'pending' }]);
+});
+
+test('опрос модерации обновляет опрошенные статусы и не теряет остальные', () => {
+  const current = [
+    { id: 'removed', status: 'pending' },
+    { id: 'changed', status: 'changes_requested' },
+    { id: 'moved', status: 'changes_requested', title: 'old' },
+    { id: 'hidden', status: 'hidden' },
+  ];
+  const refreshed = [
+    { id: 'fresh', status: 'pending' },
+    { id: 'moved', status: 'approved', title: 'new' },
+  ];
+  assert.deepEqual(
+    mergeModerationSubmissions(current, refreshed, ['pending', 'approved', 'rejected']),
+    [refreshed[0], refreshed[1], current[1], current[3]],
+  );
 });
 
 test('суточный лимит считает только последние 24 часа', () => {

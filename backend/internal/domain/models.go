@@ -77,6 +77,8 @@ type Video struct {
 }
 
 type RavshTOKItem struct {
+	Views           int64     `json:"views"`
+	UniqueViewers   int64     `json:"unique_viewers"`
 	ID              string    `json:"id"`
 	Title           string    `json:"title"`
 	Description     string    `json:"description"`
@@ -98,8 +100,9 @@ type RavshTOKItem struct {
 }
 
 type RavshTOKFeed struct {
-	Items   []RavshTOKItem `json:"items"`
-	HasMore bool           `json:"has_more"`
+	UnavailableIDs []string       `json:"unavailable_ids,omitempty"`
+	Items          []RavshTOKItem `json:"items"`
+	HasMore        bool           `json:"has_more"`
 }
 
 type Notification struct {

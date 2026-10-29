@@ -109,6 +109,10 @@ func TestRavshTOKLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	otherViewer, err := s.UpsertTwitchUser(ctx, "ravshtok-other-viewer", "ravshtok_other", "Other Viewer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var categoryID string
 	if err := s.pool.QueryRow(ctx, "SELECT id::text FROM categories WHERE slug='funny'").Scan(&categoryID); err != nil {
 		t.Fatal(err)
@@ -165,5 +169,101 @@ func TestRavshTOKLifecycle(t *testing.T) {
 	feed, err = s.ListRavshTOK(ctx, store.RavshTOKParams{UserID: viewer.ID, Role: domain.RoleOwner, Mode: "watched", Platform: "all", Sort: "new", Limit: 12})
 	if err != nil || len(feed.Items) != 1 || !feed.Items[0].UserViewed || !feed.Items[0].StreamerWatched {
 		t.Fatalf("unexpected watched feed: %+v error=%v", feed, err)
+	}
+	feed, err = s.ListRavshTOK(ctx, store.RavshTOKParams{UserID: otherViewer.ID, Role: domain.RoleUser, Mode: "new", Platform: "all", Sort: "random", Limit: 12})
+	if err != nil || len(feed.Items) != 1 || feed.Items[0].UserViewed {
+		t.Fatalf("one viewer's history leaked into another viewer's new feed: %+v error=%v", feed, err)
+	}
+	feed, err = s.ListRavshTOK(ctx, store.RavshTOKParams{UserID: otherViewer.ID, Role: domain.RoleUser, Mode: "watched", Platform: "all", Sort: "random", Limit: 12})
+	if err != nil || len(feed.Items) != 0 {
+		t.Fatalf("one viewer's history leaked into another viewer's watched feed: %+v error=%v", feed, err)
+	}
+}
+
+func TestRavshTOKPaginationWithViewsAndNewApprovals(t *testing.T) {
+	s := testDatabase(t)
+	ctx := context.Background()
+	viewer, err := s.UpsertTwitchUser(ctx, "pagination-viewer", "pagination_viewer", "Viewer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// More than one moderation page, including the historical 100-item boundary.
+	_, err = s.pool.Exec(ctx, `
+		WITH inserted AS (
+			INSERT INTO submissions(youtube_id,youtube_url,title,channel_title,thumbnail_url,author_id,category_id,source_type,source_url,status,created_at)
+			SELECT 'short:'||g,'','Video '||g,'','',$1,c.id,'short_video','https://www.tiktok.com/@test/video/'||g,'approved',now()-(g * interval '1 minute')
+			FROM generate_series(1,105) g CROSS JOIN categories c WHERE c.slug='uncategorized'
+			RETURNING id
+		)
+		INSERT INTO ravshtok_media(submission_id,platform,status,media_path)
+		SELECT id,'tiktok','ready','ravshtok/'||id||'.mp4' FROM inserted`, viewer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleOwner} {
+		_, err = s.pool.Exec(ctx, "DELETE FROM ravshtok_views; DELETE FROM streamer_marks")
+		if err != nil {
+			t.Fatal(err)
+		}
+		params := store.RavshTOKParams{UserID: viewer.ID, Role: role, Mode: "new", Platform: "all", Sort: "random", Limit: 12}
+		seen := map[string]bool{}
+		for {
+			feed, err := s.ListRavshTOK(ctx, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range feed.Items {
+				if seen[item.ID] {
+					t.Fatal("duplicate item", item.ID)
+				}
+				seen[item.ID] = true
+				params.ExcludeIDs = append(params.ExcludeIDs, item.ID)
+				if err := s.MarkRavshTOKViewed(ctx, item.ID, viewer.ID, role); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !feed.HasMore {
+				break
+			}
+		}
+		if len(seen) != 105 {
+			t.Fatalf("role=%s: got %d videos, want 105", role, len(seen))
+		}
+		// An older submission approved/prepared later must still be discoverable.
+		var newID string
+		err = s.pool.QueryRow(ctx, `INSERT INTO submissions(youtube_id,youtube_url,title,channel_title,thumbnail_url,author_id,category_id,source_type,source_url,status,created_at)
+			SELECT $1,'','Late video','','',$2,id,'short_video','https://www.tiktok.com/@test/video/late','approved',now()-interval '10 days'
+			FROM categories WHERE slug='uncategorized' RETURNING id::text`, "late:"+string(role), viewer.ID).Scan(&newID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.pool.Exec(ctx, `INSERT INTO ravshtok_media(submission_id,platform,status,media_path) VALUES($1,'tiktok','ready','ravshtok/late.mp4')`, newID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		feed, err := s.ListRavshTOK(ctx, params)
+		if err != nil || len(feed.Items) != 1 || feed.Items[0].ID != newID {
+			t.Fatalf("late approval missing: %+v %v", feed, err)
+		}
+		if err = s.DeleteVideo(ctx, newID, viewer.ID); err != nil {
+			t.Fatal(err)
+		}
+		params.ExcludeIDs = append(params.ExcludeIDs, newID)
+		feed, err = s.ListRavshTOK(ctx, params)
+		if err != nil || len(feed.Items) != 0 || len(feed.UnavailableIDs) != 1 || feed.UnavailableIDs[0] != newID {
+			t.Fatalf("deleted item still visible: %+v %v", feed, err)
+		}
+	}
+	first, next, err := s.ListModerationPage(ctx, domain.StatusApproved, 100, "")
+	if err != nil || len(first) != 100 || next == "" {
+		t.Fatalf("moderation first page: %d %q %v", len(first), next, err)
+	}
+	second, next, err := s.ListModerationPage(ctx, domain.StatusApproved, 100, next)
+	if err != nil || len(second) != 5 || next != "" {
+		t.Fatalf("moderation second page: %d %q %v", len(second), next, err)
+	}
+	feed, err := s.ListRavshTOK(ctx, store.RavshTOKParams{Mode: "all", Platform: "all", Sort: "new", Limit: 12})
+	if err != nil || feed.Items[0].Views != 1 || feed.Items[0].UniqueViewers != 1 {
+		t.Fatalf("view stats: %+v %v", feed, err)
 	}
 }

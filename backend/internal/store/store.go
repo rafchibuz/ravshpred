@@ -30,13 +30,14 @@ type FeedParams struct {
 }
 
 type RavshTOKParams struct {
-	UserID   string
-	Role     domain.Role
-	Mode     string
-	Platform string
-	Sort     string
-	Limit    int
-	Offset   int
+	ExcludeIDs []string
+	UserID     string
+	Role       domain.Role
+	Mode       string
+	Platform   string
+	Sort       string
+	Limit      int
+	Offset     int
 }
 
 type UserStatsParams struct {

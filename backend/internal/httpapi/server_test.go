@@ -165,6 +165,23 @@ func TestRavshTOKFeedAndActions(t *testing.T) {
 	}
 }
 
+func TestRavshTOKFeedExcludesReceivedIDs(t *testing.T) {
+	database := &ravshTOKStub{}
+	handler := testServer(database)
+	request := httptest.NewRequest(http.MethodPost, "/api/ravshtok/feed?mode=all&offset=12", strings.NewReader(`{"exclude_ids":["00000000-0000-0000-0000-000000000001"]}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || database.params.Offset != 0 || database.params.Sort != "random" || len(database.params.ExcludeIDs) != 1 {
+		t.Fatalf("unexpected feed response=%d params=%+v", response.Code, database.params)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/ravshtok/feed", strings.NewReader(`{"exclude_ids":["bad-id"]}`))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid ID: %d", response.Code)
+	}
+}
+
 func TestPublicHealthAndCategories(t *testing.T) {
 	t.Parallel()
 	handler := testServer(&stubStore{categories: []domain.Category{{ID: "1", Slug: "funny", Name: "Смешное"}}})

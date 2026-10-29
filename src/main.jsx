@@ -48,6 +48,7 @@ import {
   deduplicateTwitchClips,
   isDuplicate,
   latestTwitchStreamClips,
+  mergeModerationSubmissions,
   newPendingSubmissions,
   parseYouTubeId,
   recentSubmissionCount,
@@ -2102,9 +2103,8 @@ function ProfileView({ videos, actor, navigate }) {
             </div>
             <span className={`status ${video.status}`}>{STATUS_LABELS[video.status]}{video.watched && <small>{video.contentKind === 'stream_idea' ? 'Реализовано' : 'Отсмотрено'}</small>}</span>
             <div className="submission-decision">
-              {video.sourceType === 'short_video' && video.status === 'approved'
-                ? <RavshTOKMediaState video={video} detailed />
-                : <span className="decision">{profileDecisionText(video)}</span>}
+              <span className="decision">{profileDecisionText(video)}</span>
+              {video.sourceType === 'short_video' && <RavshTOKMediaState video={video} detailed />}
             </div>
           </div>
         ))}
@@ -2285,15 +2285,19 @@ function ModeratorMovieEditor({ video, onSave, notify }) {
 function ModerationView({ state, role, onDecision, onWatched, onDelete, onCategoryChange, onContentUpdate, onMovieUpdate, notify }) {
   const [tab, setTab] = useState('pending');
   const [kind, setKind] = useState('all');
+  const [mediaFilter, setMediaFilter] = useState('all');
   const matchesKind = useCallback((video, value = kind) => value === 'all'
     || (value === 'ravshtok' && video.sourceType === 'short_video')
     || (value === 'video' && (video.contentKind || 'video') === 'video' && video.sourceType !== 'short_video')
     || (value === 'stream_idea' && video.contentKind === 'stream_idea'), [kind]);
-  const items = state.videos.filter((video) => video.status === tab && matchesKind(video));
+  const matchesMedia = (video) => mediaFilter === 'all' || (video.sourceType === 'short_video' && (
+    mediaFilter === 'loading' ? ['pending', 'processing'].includes(video.ravshtokStatus) : video.ravshtokStatus === mediaFilter
+  ));
+  const items = state.videos.filter((video) => video.status === tab && matchesKind(video) && matchesMedia(video));
   const [selectedId, setSelectedId] = useState(items[0]?.id);
   const [comment, setComment] = useState('');
   const [deleteArmed, setDeleteArmed] = useState(false);
-  const selected = state.videos.find((video) => video.id === selectedId && video.status === tab && matchesKind(video)) || items[0];
+  const selected = items.find((video) => video.id === selectedId) || items[0];
 
   useEffect(() => {
     if (!selected && items[0]) setSelectedId(items[0].id);
@@ -2332,7 +2336,11 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
               ['video', 'Видео'],
               ['ravshtok', 'RavshTOK'],
               ['stream_idea', 'Идеи'],
-            ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => { setKind(value); setSelectedId(state.videos.find((video) => video.status === tab && matchesKind(video, value))?.id); }}>{label}</button>)}
+            ].map(([value, label]) => <button key={value} className={kind === value ? 'selected' : ''} onClick={() => {
+              setKind(value);
+              if (!['all', 'ravshtok'].includes(value)) setMediaFilter('all');
+              setSelectedId(state.videos.find((video) => video.status === tab && matchesKind(video, value))?.id);
+            }}>{label}</button>)}
           </div>
           <div className="queue-tabs">
             {[
@@ -2348,16 +2356,24 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
                   setSelectedId(state.videos.find((video) => video.status === status && matchesKind(video))?.id);
                 }}
               >
-                {label} <span>{state.videos.filter((video) => video.status === status && matchesKind(video)).length}</span>
+                {label} <span>{state.videos.filter((video) => video.status === status && matchesKind(video) && matchesMedia(video)).length}</span>
               </button>
             ))}
           </div>
+          {['all', 'ravshtok'].includes(kind) && <label className="moderation-media-filter">Загрузка TikTok / Reels
+            <select value={mediaFilter} onChange={(event) => setMediaFilter(event.target.value)}>
+              <option value="all">Любое состояние</option><option value="ready">Загружены</option>
+              <option value="loading">В очереди / загружаются</option><option value="failed">Ошибка загрузки</option>
+              <option value="expired">Срок хранения истёк</option>
+            </select>
+          </label>}
           {items.map((video) => (
             <button className={`queue-item ${selected?.id === video.id ? 'selected' : ''}`} key={video.id} onClick={() => setSelectedId(video.id)}>
               <Thumb video={video} />
               <div>
                 <strong>{video.title}</strong>
                 <span>{video.author} · #{video.id}</span>
+                <RavshTOKMediaState video={video} />
               </div>
               <span className="queue-status">{STATUS_LABELS[video.status].toUpperCase()}</span>
             </button>
@@ -2382,6 +2398,7 @@ function ModerationView({ state, role, onDecision, onWatched, onDelete, onCatego
                 <span>Тип <b>{selected.contentKind === 'stream_idea' ? 'Идея для стрима' : selected.sourceType === 'short_video' ? 'TikTok / Reels' : selected.sourceType === 'external' ? 'Другая ссылка' : 'YouTube'}</b></span>
                 {selected.contentKind !== 'stream_idea' && <span>Источник <b>{selected.channel}{selected.sourceType === 'youtube' ? ` · ${selected.views} просмотров` : ''}</b></span>}
                 <span>Отправитель <b>{selected.author}</b></span>
+                {selected.sourceType === 'short_video' && <span>Просмотры на сайте <b>{selected.views === '—' ? '0' : selected.views}</b></span>}
               </div>
               {selected.sourceType === 'short_video' && <RavshTOKMediaState video={selected} detailed />}
             </div>
@@ -2855,23 +2872,38 @@ function AccessDenied({ role, onAccess }) {
 function RavshTOKView({ actor, role, onLogin, notify }) {
   const [mode, setMode] = useState(role === 'guest' ? 'all' : 'new');
   const [platform, setPlatform] = useState('all');
-  const [sort, setSort] = useState('new');
+  const sort = 'random';
   const [items, setItems] = useState([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
+  const [moreError, setMoreError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [failedMedia, setFailedMedia] = useState(new Set());
   const [activeIndex, setActiveIndex] = useState(0);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(() => {
-    const saved = Number(window.localStorage.getItem('ravshtok-volume'));
+    const saved = Number(window.localStorage.getItem('ravshtok-volume') ?? 0.8);
     return Number.isFinite(saved) && saved >= 0 && saved <= 1 ? saved : 0.8;
   });
   const [playback, setPlayback] = useState({ current: 0, duration: 0 });
   const feedRef = useRef(null);
   const videoRefs = useRef(new Map());
   const viewedThisSessionRef = useRef(new Set());
+  const watchProgressRef = useRef(new Map());
+  const itemsRef = useRef(items);
+  const requestRef = useRef({ busy: false, controller: null });
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
+  itemsRef.current = items;
   const hadActorRef = useRef(Boolean(actor));
+
+  useEffect(() => {
+    viewedThisSessionRef.current.clear();
+    watchProgressRef.current.clear();
+  }, [actor?.id]);
 
   useEffect(() => {
     if (!hadActorRef.current && actor) {
@@ -2880,45 +2912,73 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
     }
   }, [actor]);
 
+  const loadMore = useCallback(async (initial = false) => {
+    const requestState = requestRef.current;
+    if (requestState.busy || requestState.controller?.signal.aborted) return;
+    requestState.busy = true;
+    if (!initial) setLoadingMore(true);
+    setMoreError('');
+    try {
+      const result = await api.loadRavshTOK({ mode, platform, sort,
+        excludeIds: itemsRef.current.map((item) => item.id), limit: 12,
+        signal: requestState.controller.signal });
+      if (requestState !== requestRef.current || requestState.controller.signal.aborted) return;
+      const known = new Set(itemsRef.current.map((item) => item.id));
+      const unavailable = new Set(result.unavailableIds);
+      const activeID = itemsRef.current[activeIndexRef.current]?.id;
+      const merged = [...itemsRef.current.filter((item) => !unavailable.has(item.id)), ...result.items.filter((item) => !known.has(item.id))];
+      itemsRef.current = merged;
+      setItems(merged);
+      if (unavailable.size) {
+        const found = merged.findIndex((item) => item.id === activeID);
+        const index = found >= 0 ? found : Math.max(0, Math.min(activeIndexRef.current, merged.length - 1));
+        setActiveIndex(index);
+        requestAnimationFrame(() => { const feed = feedRef.current; if (feed) feed.scrollTo({ top: index * feed.clientHeight }); });
+      }
+      setError('');
+      setHasMore(result.hasMore);
+    } catch (loadError) {
+      if (requestState !== requestRef.current || requestState.controller.signal.aborted) return;
+      if (initial) setError(loadError.message);
+      else setMoreError(loadError.message);
+      setHasMore(false);
+    } finally {
+      requestState.busy = false;
+      if (requestState === requestRef.current && !requestState.controller.signal.aborted) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, [mode, platform, sort]);
+
   useEffect(() => {
-    let active = true;
+    requestRef.current.controller?.abort();
+    const controller = new AbortController();
+    requestRef.current = { busy: false, controller };
+    itemsRef.current = [];
+    setItems([]);
     setLoading(true);
     setError('');
-    setItems([]);
     setHasMore(false);
     setActiveIndex(0);
     feedRef.current?.scrollTo({ top: 0 });
-    api.loadRavshTOK({ mode, platform, sort, offset: 0, limit: 12 })
-      .then((result) => {
-        if (!active) return;
-        setItems(result.items);
-        setHasMore(result.hasMore);
-      })
-      .catch((loadError) => active && setError(loadError.message))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [mode, platform, sort]);
+    loadMore(true);
+    const refresh = () => { if (!document.hidden) loadMore(); };
+    const timer = window.setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    return () => { controller.abort(); requestRef.current.controller?.abort(); window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, [loadMore, actor?.id, role]);
 
-  const loadMore = useCallback(async () => {
-    if (loadingMore || loading || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      const result = await api.loadRavshTOK({ mode, platform, sort, offset: items.length, limit: 12 });
-      setItems((current) => [...current, ...result.items.filter((item) => !current.some((known) => known.id === item.id))]);
-      setHasMore(result.hasMore);
-    } catch (loadError) {
-      notify(loadError.message);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [hasMore, items.length, loading, loadingMore, mode, notify, platform, sort]);
+  useEffect(() => {
+    if (!loading && hasMore && activeIndex >= items.length - 3) loadMore();
+  }, [activeIndex, items.length, hasMore, loading, loadMore]);
 
   const goTo = useCallback((index) => {
     const feed = feedRef.current;
     if (!feed || !items.length) return;
     const next = Math.max(0, Math.min(index, items.length - 1));
     const slide = feed.children[next];
-    if (slide) feed.scrollTo({ top: slide.offsetTop, behavior: 'smooth' });
+    if (slide) feed.scrollTo({ top: slide.getBoundingClientRect().top - feed.getBoundingClientRect().top + feed.scrollTop, behavior: 'smooth' });
     setActiveIndex(next);
   }, [items.length]);
 
@@ -2942,7 +3002,7 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
       const active = items[activeIndex]?.id === id;
       video.volume = volume;
       video.muted = muted || volume === 0;
-      if (active) video.play().catch(() => {});
+      if (active && !deleteTarget) video.play().catch(() => {});
       else video.pause();
     });
     const activeVideo = videoRefs.current.get(items[activeIndex]?.id);
@@ -2950,8 +3010,7 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
       current: Number(activeVideo?.currentTime) || 0,
       duration: Number(activeVideo?.duration) || Number(items[activeIndex]?.durationSeconds) || 0,
     });
-    if (activeIndex >= items.length - 3) loadMore();
-  }, [activeIndex, items, loadMore, muted, volume]);
+  }, [activeIndex, items[activeIndex]?.id, muted, volume, deleteTarget]);
 
   useEffect(() => {
     window.localStorage.setItem('ravshtok-volume', String(volume));
@@ -2963,6 +3022,22 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
       current: Number(video.currentTime) || 0,
       duration: Number(video.duration) || Number(items[activeIndex]?.durationSeconds) || 0,
     });
+    if (!actor || video.paused || document.hidden || viewedThisSessionRef.current.has(itemId)) return;
+    const progress = watchProgressRef.current.get(itemId) || { last: video.currentTime, seconds: 0 };
+    const delta = video.currentTime - progress.last;
+    progress.seconds += delta > 0 && delta < 1.5 ? delta : 0;
+    progress.last = video.currentTime;
+    watchProgressRef.current.set(itemId, progress);
+    if (progress.seconds >= 1) {
+      viewedThisSessionRef.current.add(itemId);
+      const controller = requestRef.current.controller;
+      api.markRavshTOKViewed(itemId).then(() => {
+        if (controller !== requestRef.current.controller || controller.signal.aborted) return;
+        setItems((current) => current.map((entry) => entry.id === itemId
+          ? { ...entry, views: entry.views + 1, uniqueViewers: entry.uniqueViewers + (entry.userViewed ? 0 : 1), userViewed: true, streamerWatched: role === 'owner' || entry.streamerWatched }
+          : entry));
+      }).catch(() => { if (controller === requestRef.current.controller) viewedThisSessionRef.current.delete(itemId); });
+    }
   };
 
   const seekActiveVideo = (nextTime) => {
@@ -2983,23 +3058,6 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
     setMuted((value) => !value);
   };
 
-  useEffect(() => {
-    const item = items[activeIndex];
-    if (!actor || !item || viewedThisSessionRef.current.has(item.id)) return undefined;
-    const timer = window.setTimeout(async () => {
-      try {
-        await api.markRavshTOKViewed(item.id);
-        viewedThisSessionRef.current.add(item.id);
-        setItems((current) => current.map((entry) => entry.id === item.id
-          ? { ...entry, userViewed: true, streamerWatched: role === 'owner' || entry.streamerWatched }
-          : entry));
-      } catch {
-        // Повторим отметку, если пользователь снова задержится на ролике.
-      }
-    }, 2500);
-    return () => window.clearTimeout(timer);
-  }, [activeIndex, actor, items, role]);
-
   const onScroll = () => {
     const feed = feedRef.current;
     if (!feed || !feed.children.length) return;
@@ -3007,7 +3065,8 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
     let closest = 0;
     let distance = Number.POSITIVE_INFINITY;
     [...feed.querySelectorAll('.ravshtok-slide')].forEach((slide, index) => {
-      const currentDistance = Math.abs(slide.offsetTop + slide.clientHeight / 2 - center);
+      const top = slide.getBoundingClientRect().top - feed.getBoundingClientRect().top + feed.scrollTop;
+      const currentDistance = Math.abs(top + slide.clientHeight / 2 - center);
       if (currentDistance < distance) {
         closest = index;
         distance = currentDistance;
@@ -3034,6 +3093,26 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
     }
   };
 
+  const removeItem = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await api.deleteVideo(deleteTarget.id);
+      requestRef.current.controller?.abort();
+      requestRef.current = { busy: false, controller: new AbortController() };
+      const remaining = itemsRef.current.filter((item) => item.id !== deleteTarget.id);
+      itemsRef.current = remaining;
+      setItems(remaining);
+      const next = Math.max(0, Math.min(activeIndex, remaining.length - 1));
+      setActiveIndex(next);
+      requestAnimationFrame(() => { const feed = feedRef.current; if (feed) feed.scrollTo({ top: next * feed.clientHeight }); });
+      setDeleteTarget(null);
+      notify('Ролик удалён. Файлы поставлены в очередь очистки сервера.');
+      loadMore();
+    } catch (deleteError) { notify(deleteError.message); }
+    finally { setDeleting(false); }
+  };
+
   return (
     <main className="ravshtok-page">
       <header className="ravshtok-toolbar">
@@ -3041,9 +3120,10 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
         <div className="ravshtok-filters" aria-label="Фильтры RavshTOK">
           <div>{[['new', 'Новые'], ['watched', 'Отсмотренные'], ['all', 'Все']].map(([value, label]) => <button key={value} className={mode === value ? 'selected' : ''} onClick={() => { if (!actor && value !== 'all') onLogin(); else setMode(value); }}>{label}</button>)}</div>
           <select value={platform} onChange={(event) => setPlatform(event.target.value)} aria-label="Площадка"><option value="all">Все площадки</option><option value="tiktok">TikTok</option><option value="instagram">Reels</option></select>
-          <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Сортировка"><option value="new">По новизне</option><option value="popular">По оценкам</option></select>
         </div>
       </header>
+
+      {(error || moreError) && <button className="ravshtok-retry" onClick={() => loadMore()}>Повторить загрузку</button>}
 
       {loading && <div className="ravshtok-state"><span className="clips-loader" /><b>Готовим ленту</b><small>Первый ролик появится через пару секунд</small></div>}
       {!loading && error && <div className="ravshtok-state error"><ShieldAlert size={28} /><b>Не удалось открыть RavshTOK</b><small>{error}</small></div>}
@@ -3055,25 +3135,29 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
             <div className="ravshtok-video-stage">
               <video
                 ref={(node) => { if (node) videoRefs.current.set(item.id, node); else videoRefs.current.delete(item.id); }}
-                src={item.playbackUrl}
+                src={Math.abs(index - activeIndex) <= 1 ? item.playbackUrl : undefined}
                 poster={item.posterUrl}
-                preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'metadata'}
+                preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'none'}
                 playsInline
                 loop
                 muted={muted}
+                onError={() => { if (Math.abs(index - activeIndex) <= 1) setFailedMedia((current) => new Set(current).add(item.id)); }}
                 onLoadedMetadata={(event) => updatePlayback(item.id, event.currentTarget)}
                 onDurationChange={(event) => updatePlayback(item.id, event.currentTarget)}
                 onTimeUpdate={(event) => updatePlayback(item.id, event.currentTarget)}
                 onClick={(event) => { if (event.currentTarget.paused) event.currentTarget.play().catch(() => {}); else event.currentTarget.pause(); }}
               />
+              {failedMedia.has(item.id) && <div className="ravshtok-media-error"><span>Видео не загрузилось</span><button onClick={() => { setFailedMedia((current) => { const next = new Set(current); next.delete(item.id); return next; }); videoRefs.current.get(item.id)?.load(); }}>Повторить</button></div>}
               <div className="ravshtok-shade" />
               <div className="ravshtok-copy">
                 <div className="ravshtok-author"><Avatar small src={item.author.avatarUrl} name={item.author.name} /><b>{item.author.name}</b><span>{item.platform === 'instagram' ? 'REELS' : 'TIKTOK'}</span>{(item.userViewed || item.streamerWatched) && <em>Уже смотрели</em>}</div>
                 <h1>{item.title}</h1>
+                <span className="ravshtok-view-count" title="Просмотры авторизованных зрителей на сайте"><Eye size={13} /> Просмотры: {item.views} · зрители: {item.uniqueViewers}</span>
                 {item.description && <p>{item.description}</p>}
                 <a href={item.sourceUrl} target="_blank" rel="noreferrer">Открыть оригинал <ExternalLink size={13} /></a>
               </div>
               <div className="ravshtok-actions">
+                {can(role, 'moderate') && <button onClick={() => setDeleteTarget(item)} aria-label="Удалить ролик" title="Удалить ролик"><Trash2 size={19} /></button>}
                 <button className={item.userVote === 1 ? 'selected' : ''} onClick={() => voteItem(item, 1)} aria-label="Нравится"><ThumbsUp size={21} /><b>{item.likes}</b></button>
                 <button className={item.userVote === -1 ? 'selected dislike' : ''} onClick={() => voteItem(item, -1)} aria-label="Не нравится"><ThumbsDown size={21} /><b>{item.dislikes}</b></button>
                 <div className="ravshtok-volume-control">
@@ -3105,6 +3189,11 @@ function RavshTOKView({ actor, role, onLogin, notify }) {
         <span>{activeIndex + 1}</span>
         <button disabled={activeIndex >= items.length - 1 && !hasMore} onClick={() => { if (activeIndex >= items.length - 1) loadMore(); else goTo(activeIndex + 1); }} aria-label="Следующий ролик"><ArrowDown size={21} /></button>
       </div>}
+      {deleteTarget && <div className="modal-backdrop" role="presentation"><section className="panel ravshtok-delete-dialog" role="dialog" aria-modal="true" aria-label="Удалить ролик">
+        <h2>Удалить «{deleteTarget.title}»?</h2><p>Ролик исчезнет из ленты, видео и превью будут удалены с сервера фоновой очисткой.</p>
+        <button className="ghost-btn" disabled={deleting} onClick={() => setDeleteTarget(null)}>Отмена</button>{' '}
+        <button className="danger-btn" disabled={deleting} onClick={removeItem}>{deleting ? 'Удаляем…' : 'Удалить'}</button>
+      </section></div>}
     </main>
   );
 }
@@ -3337,11 +3426,14 @@ function App() {
   useEffect(() => {
     if (!can(role, 'moderate') || !apiReady) return undefined;
     let active = true;
+    let polling = false;
     pendingSubmissionIdsRef.current = new Set(
       state.videos.filter((video) => video.status === 'pending').map((video) => video.id),
     );
 
     const pollModeration = async () => {
+      if (polling || document.hidden) return;
+      polling = true;
       try {
         const batches = await Promise.all(['pending', 'approved', 'rejected'].map(api.loadModerationSubmissions));
         if (!active) return;
@@ -3349,17 +3441,10 @@ function App() {
         const pending = batches[0];
         const additions = newPendingSubmissions(pendingSubmissionIdsRef.current, pending);
         pendingSubmissionIdsRef.current = new Set(pending.map((video) => video.id));
-        setState((current) => {
-          const updates = new Map(refreshed.map((video) => [video.id, video]));
-          const existingIds = new Set(current.videos.map((video) => video.id));
-          return {
-            ...current,
-            videos: [
-              ...refreshed.filter((video) => !existingIds.has(video.id)),
-              ...current.videos.map((video) => updates.get(video.id) || video),
-            ],
-          };
-        });
+        setState((current) => ({
+          ...current,
+          videos: mergeModerationSubmissions(current.videos, refreshed, ['pending', 'approved', 'rejected']),
+        }));
         if (additions.length) {
           playNewSubmissionSound(moderationAudioRef);
           notify(additions.length === 1
@@ -3368,7 +3453,7 @@ function App() {
         }
       } catch {
         // Следующая фоновая проверка повторит запрос без вмешательства пользователя.
-      }
+      } finally { polling = false; }
     };
 
     const timer = window.setInterval(pollModeration, MODERATION_POLL_INTERVAL);
