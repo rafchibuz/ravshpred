@@ -95,15 +95,15 @@ func TestPendingRatingSnapshotJobsSkipIdleAndTargetChangedChannel(t *testing.T) 
 	}
 	if _, err := s.pool.Exec(ctx, `UPDATE twitch_rating_snapshots
 		SET generated_at=now()-interval '11 minutes'
-		WHERE split_part(key, ':', 2)=ANY($1)`, []string{"1d", "3d", "7d", "30d", "1y"}); err != nil {
+		WHERE split_part(key, ':', 2)=ANY($1)`, []string{"last_stream", "1d", "3d", "7d", "30d", "1y"}); err != nil {
 		t.Fatal(err)
 	}
 	jobs, err = s.pendingRatingSnapshotJobs(ctx, state, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(jobs) != 10 {
-		t.Fatalf("live chat must refresh five periods for changed and combined channels: %+v", jobs)
+	if len(jobs) != 12 {
+		t.Fatalf("live chat must refresh six periods for changed and combined channels: %+v", jobs)
 	}
 	for _, job := range jobs {
 		if !ratingSnapshotLivePeriod(job.period) || job.channel == "ravshanbtw" {
@@ -163,6 +163,9 @@ func TestRatingSnapshotNeedsRefresh(t *testing.T) {
 	}
 	if !ratingSnapshotNeedsRefresh("30d", now.Add(-ratingSnapshotLiveInterval), true, source, now, true) {
 		t.Fatal("changed live snapshot must refresh after the interval")
+	}
+	if !ratingSnapshotNeedsRefresh("last_stream", now.Add(-ratingSnapshotLiveInterval), true, source, now, true) {
+		t.Fatal("current stream snapshot must refresh during a live stream")
 	}
 	if ratingSnapshotNeedsRefresh("90d", time.Time{}, false, source, now, true) {
 		t.Fatal("heavy historical period must not be created during a stream")

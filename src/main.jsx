@@ -3266,20 +3266,20 @@ function ViewerRatingView({ actor, role, onLogin }) {
 
     <section className="rating-controls panel">
       <div className="rating-filter"><span>Канал</span>{[['all', 'Общий'], ['ravshann', 'RavshanN'], ['ravshanbtw', 'ravshanbtw']].map(([value, label]) => <button key={value} className={channel === value ? 'selected' : ''} onClick={() => setChannel(value)}>{label}</button>)}</div>
-      <div className="rating-filter"><span>Период</span>{[['3d', '3 дня'], ['7d', '7 дней'], ['30d', '30 дней'], ['90d', '90 дней'], ['1y', '1 год'], ['all', 'Всё время']].map(([value, label]) => <button key={value} className={period === value ? 'selected' : ''} onClick={() => setPeriod(value)}>{label}</button>)}</div>
+      <div className="rating-filter"><span>Период</span>{[['last_stream', 'Прошлый эфир'], ['3d', '3 дня'], ['7d', '7 дней'], ['30d', '30 дней'], ['90d', '90 дней'], ['1y', '1 год'], ['all', 'Всё время']].map(([value, label]) => <button key={value} className={period === value ? 'selected' : ''} onClick={() => setPeriod(value)}>{label}</button>)}</div>
       <div className="rating-summary"><b>{rating?.participant_count || 0}</b><span>участников</span><b>{rating?.stream_count || 0}</b><span>стримов</span></div>
     </section>
 
     <details className="rating-rules panel" open>
       <summary><span><ShieldCheck size={16} /> Как считается рейтинг</span><small>Правила одинаковы для обычных зрителей, VIP и модераторов</small></summary>
       <div className="rating-rule-grid">
-        <article><strong>40%</strong><div><b>Участие в эфирах</b><span>Чем больше стримов вы посетили активно, тем выше результат.</span></div></article>
-        <article><strong>25%</strong><div><b>Регулярность</b><span>Учитывается активность в разные недели, а не один очень активный день.</span></div></article>
-        <article><strong>20%</strong><div><b>Свежая активность</b><span>Недавнее участие влияет сильнее, затем его вес постепенно снижается.</span></div></article>
-        <article><strong>10%</strong><div><b>Участие в течение стрима</b><span>Сообщения в разные десятиминутные отрезки ценнее короткой серии подряд.</span></div></article>
+        <article><strong>30%</strong><div><b>Участие в эфирах</b><span>Чем больше стримов вы посетили активно, тем выше результат.</span></div></article>
+        <article><strong>30%</strong><div><b>Активность в чате</b><span>Больше подходящих сообщений даёт больше баллов, но польза постепенно достигает предела.</span></div></article>
+        <article><strong>20%</strong><div><b>Участие в течение стрима</b><span>Сообщения в разные пятиминутные отрезки ценнее короткой серии подряд.</span></div></article>
+        <article><strong>15%</strong><div><b>Регулярность</b><span>Учитывается активность в разные недели, а не один очень активный день.</span></div></article>
         <article><strong>5%</strong><div><b>Общение</b><span>Ответы другим участникам показывают включённость в разговор.</span></div></article>
       </div>
-      <div className="rating-rules-note"><b>Когда эфир засчитывается:</b> минимум 3 подходящих сообщения хотя бы в двух разных десятиминутных отрезках. Команды, быстрые повторы и сообщения Shared Chat из другого канала исключаются. Роль Twitch отображается в таблице, но дополнительных баллов не даёт.</div>
+      <div className="rating-rules-note"><b>Когда эфир засчитывается:</b> минимум 3 подходящих сообщения хотя бы в двух разных пятиминутных отрезках. В каждом отрезке в активность засчитываются не более трёх сообщений. Команды, быстрые повторы и сообщения Shared Chat из другого канала исключаются. Во время трансляции период «Прошлый эфир» показывает текущий эфир. Роль Twitch отображается в таблице, но дополнительных баллов не даёт.</div>
     </details>
 
     {loading && <section className="rating-state panel"><span className="clips-loader" /> Загружаем рейтинг…</section>}
@@ -3305,19 +3305,19 @@ function ViewerRatingView({ actor, role, onLogin }) {
         <span><b>{rating.me.active_streams}<small> / {rating.stream_count}</small></b><em>Эфиры</em></span>
         <span><b>{rating.me.active_days}</b><em>Дни</em></span>
         <span><b>{rating.me.active_weeks}</b><em>Недели</em></span>
-        <span><b>{rating.me.messages.toLocaleString('ru-RU')}</b><em>Сообщения</em></span>
+        <span><b>{Number(rating.me.counted_messages || 0).toLocaleString('ru-RU')}</b><em>Засчитано</em></span>
       </div>
       <strong className="rating-me-score">{rating.me.score}<small>/100</small><em>Баллы</em></strong>
     </section>}
 
     {!loading && rating?.items?.length > 0 && <section className="rating-table panel">
       <div className="rating-table-head"><div><span className="eyebrow">ТОП ЗРИТЕЛЕЙ</span><h2>Первые 100 мест</h2></div><span className="rating-realtime"><i /> {rating?.preparing ? 'Готовим первый расчёт — обновим автоматически' : rating?.generated_at ? `Расчёт: ${new Date(rating.generated_at).toLocaleString('ru-RU')}${rating.stale ? ' · показываем сохранённый результат' : ''}` : 'Проверяем обновления раз в минуту'}</span></div>
-      <div className="rating-row rating-columns"><span>Место</span><span>Зритель</span><span>Роль</span><span>Эфиры</span><span>Дни</span><span>Сообщения</span><span>Баллы</span></div>
+      <div className="rating-row rating-columns"><span>Место</span><span>Зритель</span><span>Роль</span><span>Эфиры</span><span>Дни</span><span>Засчитано</span><span>Баллы</span></div>
       {rating.items.map((entry) => <div className={`rating-row ${rating.me?.twitch_id === entry.twitch_id ? 'is-me' : ''} ${movements[entry.twitch_id] ? 'rank-changed' : ''}`} key={entry.twitch_id}>
         <strong className="rating-rank">#{entry.rank}{movements[entry.twitch_id] > 0 && <small className="rank-up"><ArrowUp size={11} />{movements[entry.twitch_id]}</small>}{movements[entry.twitch_id] < 0 && <small className="rank-down"><ArrowDown size={11} />{Math.abs(movements[entry.twitch_id])}</small>}</strong>
         <div className="rating-user"><div className="rating-avatar small"><RatingAvatar entry={entry} fallbackUrl={entry.twitch_id === actor?.twitch_id ? actor?.avatar_url : ''} /></div><span><b>{entry.display_name}</b></span></div>
         <span><i className={`rating-role role-${entry.role}`}>{RATING_ROLE_LABELS[entry.role] || 'Зритель'}</i></span>
-        <b>{entry.active_streams}<small> / {rating.stream_count}</small></b><b>{entry.active_days}</b><b>{entry.messages.toLocaleString('ru-RU')}</b>
+        <b>{entry.active_streams}<small> / {rating.stream_count}</small></b><b>{entry.active_days}</b><b title={`Всего подходящих сообщений: ${entry.messages.toLocaleString('ru-RU')}`}>{Number(entry.counted_messages || 0).toLocaleString('ru-RU')}<small> / {entry.messages.toLocaleString('ru-RU')}</small></b>
         <strong className="rating-score">{entry.score}</strong>
       </div>)}
     </section>}

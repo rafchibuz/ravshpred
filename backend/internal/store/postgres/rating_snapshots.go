@@ -296,7 +296,7 @@ func waitForRatingSnapshotWorker(ctx context.Context, duration time.Duration) bo
 
 func ratingSnapshotLivePeriod(period string) bool {
 	switch period {
-	case "1d", "3d", "7d", "30d", "1y":
+	case "last_stream", "1d", "3d", "7d", "30d", "1y":
 		return true
 	default:
 		return false

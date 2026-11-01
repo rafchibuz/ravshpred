@@ -72,6 +72,9 @@ var castingJudgesSchema string
 //go:embed migrations/000018_casting_winners.sql
 var castingWinnersSchema string
 
+//go:embed migrations/000020_rating_formula_v2.sql
+var ratingFormulaV2Schema string
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -158,6 +161,10 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := pool.Exec(ctx, castingWinnersSchema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("apply casting winners schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, ratingFormulaV2Schema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("apply rating formula v2: %w", err)
 	}
 	return result, nil
 }

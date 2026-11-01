@@ -261,14 +261,15 @@ type ViewerRatingEntry struct {
 	DisplayName    string     `json:"display_name"`
 	AvatarURL      string     `json:"avatar_url,omitempty"`
 	Role           string     `json:"role"`
-	Score          int        `json:"score"`
-	Messages       int        `json:"messages"`
-	ActiveStreams  int        `json:"active_streams"`
-	StreamCoverage int        `json:"stream_coverage"`
-	ActiveDays     int        `json:"active_days"`
-	ActiveWeeks    int        `json:"active_weeks"`
-	LastActivity   *time.Time `json:"last_activity,omitempty"`
-	Confidence     string     `json:"confidence"`
+	Score           int        `json:"score"`
+	Messages        int        `json:"messages"`
+	CountedMessages int        `json:"counted_messages"`
+	ActiveStreams   int        `json:"active_streams"`
+	StreamCoverage  int        `json:"stream_coverage"`
+	ActiveDays      int        `json:"active_days"`
+	ActiveWeeks     int        `json:"active_weeks"`
+	LastActivity    *time.Time `json:"last_activity,omitempty"`
+	Confidence      string     `json:"confidence"`
 }
 
 type ViewerRatingStatus struct {
