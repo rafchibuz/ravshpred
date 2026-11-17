@@ -1000,3 +1000,52 @@ body.modal-open { overflow: hidden; }
   .ravshtok-page { height: calc(66.6667dvh - 70px); }
   .ravshtok-video-stage { height: min(850px,calc(66.6667dvh - 121px)); }
 }
+
+.slay-king-link {
+  --king-height: clamp(180px, 30dvh, 340px);
+  position: fixed;
+  z-index: 40;
+  top: 50%;
+  right: 0;
+  display: block;
+  width: calc(var(--king-height) * 0.44664);
+  height: var(--king-height);
+  overflow: hidden;
+  transform: translateY(-50%);
+  transition: width .4s cubic-bezier(.2, .75, .2, 1);
+}
+
+.slay-king-link img {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: block;
+  width: auto;
+  max-width: none;
+  height: 100%;
+  transition: opacity .28s ease;
+}
+
+.slay-king-hover { opacity: 0; }
+
+@media (hover: hover) {
+  .slay-king-link:hover { width: calc(var(--king-height) * 1.6173); }
+  .slay-king-link:hover .slay-king-idle { opacity: 0; }
+  .slay-king-link:hover .slay-king-hover { opacity: 1; }
+}
+
+.slay-king-link:focus-visible {
+  width: calc(var(--king-height) * 1.6173);
+  outline: 2px solid #f5c447;
+  outline-offset: -2px;
+}
+.slay-king-link:focus-visible .slay-king-idle { opacity: 0; }
+.slay-king-link:focus-visible .slay-king-hover { opacity: 1; }
+
+@media (max-width: 640px) {
+  .slay-king-link { --king-height: min(225px, 28dvh, 62vw); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slay-king-link, .slay-king-link img { transition: none; }
+}

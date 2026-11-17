@@ -72,6 +72,8 @@ import ravshanCutout from '../assets/about/ravshan-cutout.png';
 import betboomBanner from '../assets/about/betboom.png';
 import majesticBanner from '../assets/about/majestic.png';
 import litEnergyBanner from '../assets/about/lit-energy.png';
+import slayKingIdle from '../assets/slay-king/idle.png';
+import slayKingHover from '../assets/slay-king/hover.png';
 
 const STORAGE_KEY = 'ravshann-predlozhka-local-v3';
 const MODERATION_POLL_INTERVAL = 15000;
@@ -3736,6 +3738,10 @@ function App() {
         {page}
         {route !== 'ravshtok' && <SiteFooter navigate={navigate} />}
       </div>
+      <a className="slay-king-link" href="https://slayking.ravshan.tv/" aria-label="Перейти на сайт Slay King">
+        <img className="slay-king-idle" src={slayKingIdle} alt="" aria-hidden="true" />
+        <img className="slay-king-hover" src={slayKingHover} alt="" aria-hidden="true" />
+      </a>
       {authOpen && <AuthModal onContinue={localTwitchLogin} onClose={() => setAuthOpen(false)} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={15} /> {toast}</div>}
     </div>
